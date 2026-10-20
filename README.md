@@ -2,7 +2,7 @@
 
 OKEE's installation, testing and QA/QC tracker for HEL16, as an installable phone app that works without signal.
 
-- **Open:** https://okee-app.github.io/hel16-tracker/ (open it once with signal, sign in, then use **Add to Home Screen**)
+- **Open:** https://okee-app.github.io/HEL16-TRACKER/ (open it once with signal, sign in, then use **Add to Home Screen**)
 - **Teams:** `#install`, `#test` and `#qa` open the Installers, Testers and QA/QC apps directly.
 
 ## How offline works
