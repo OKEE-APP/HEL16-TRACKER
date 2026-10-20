@@ -55,6 +55,10 @@ function parseHash() {
   const site = target && SITE.find(s => target.startsWith(s[0] + '-'));
   if (site) { if (site[0] !== CODE) { setColo(site[0]); S._coloChanged = true; } S.board = target; const m = /-(CE\d)-/.exec(target); S.cell = m ? m[1] : site[0]; }
   else if (target && /^CE\d-/.test(target)) S.pendingRef = target;
+  // a board QR label: #<board> with no team, e.g. #COLO1-CE1-PNL01
+  S.scanBoard = null;
+  const scan = !S.team && !target && h && SITE.find(s => h.startsWith(s[0] + '-'));
+  if (scan) { if (scan[0] !== CODE) { setColo(scan[0]); S._coloChanged = true; } S.scanBoard = h; const m = /-(CE\d)-/.exec(h); S.cell = m ? m[1] : scan[0]; }
   document.body.className = S.team ? 'team-' + S.team : '';
 }
 parseHash();
@@ -230,6 +234,8 @@ function viewLanding() {
   const all = boardList().flatMap(circuitsOf).filter(isActive), N = all.length;
   const cnt = f => all.filter(f).length;
   const cards = [['install','--t-install'],['test','--t-test'],['qa','--t-qa']].map(([k, c]) => '<a class="tcard" href="#' + k + '" style="--c:var(' + c + ')"><h2>' + TEAMS[k].name + '</h2><p>' + TEAMS[k].blurb + '</p><span class="go">Open the ' + TEAMS[k].name + ' app →</span></a>').join('');
+  const sb = S.scanBoard && S.boards[S.scanBoard];
+  const scanned = S.scanBoard ? '<section class="panel" style="border-top:6px solid var(--hivis)"><h3>Board ' + esc(S.scanBoard) + '</h3>' + (sb ? '<p class="by" style="margin:0">' + esc(sb.area || '') + ' · open it as:</p><div class="tools">' + [['install','Installers'],['test','Testers'],['qa','QA/QC']].map(([k, l]) => '<a class="btn team" style="text-decoration:none;background:var(--t-' + k + ');border-color:var(--t-' + k + ');color:' + (k === 'install' ? '#1a1f25' : '#fff') + '" href="#' + k + '.' + esc(S.scanBoard) + '">' + l + '</a>').join('') + '</div>' : '<p class="by" style="margin:0">This board is not in the tracker. Check with the site lead.</p>') + '</section>' : '';
   const flow = '<div class="flow"><b>Installers</b> pull, terminate, label → <b>Testers</b> pre- and post-connection tests (a pass ticks "Tested") → <b>QA/QC</b> inspects and signs off, only once everything before it is complete.</div>';
   const cols = [['Pulled', c => c.st.inst], ['Board term', c => c.st.bt], ['Field term', c => c.st.ft], ['Tested', c => c.st.te], ['Labelled', c => c.st.lab], ['Post-test pass', c => postVerdict(c, c.te.post) === 'pass'], ['QA signed', c => c.st.qa]];
   let rows = '';
@@ -248,7 +254,7 @@ function viewLanding() {
       SITE.filter(([c]) => S.site[c]).map(([c, l]) => srow(l, S.site[c], c)).join('') + srow('HEL16 site', tot) + '</tbody></table></div>' +
       '<div class="tools"><span class="by">Tap an area to open it. Loaded ' + new Date(S.siteAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + '.</span><button class="btn" data-siteload>Refresh</button></div>';
   }
-  return '<section class="panel"><div class="ph"><h3>HEL16 site progress, all areas</h3></div>' + site + '</section>' +
+  return scanned + '<section class="panel"><div class="ph"><h3>HEL16 site progress, all areas</h3></div>' + site + '</section>' +
     '<section class="panel"><h3>Choose your team · ' + COLO + '</h3><div class="teams">' + cards + '</div>' + flow + '<p class="by" style="margin:0">Change area with the selector at the top. Each team app opens the area shown there.</p></section>' +
     '<section class="panel"><div class="ph"><h3>' + COLO + ' progress, all teams</h3>' + (fails ? '<span class="chip fail">' + fails + ' failed tests</span>' : '') + '</div><div class="scroll"><table><thead><tr><th>Cell</th><th>Active</th>' + cols.map(([l]) => '<th>' + l + '</th>').join('') + '</tr></thead><tbody>' + rows + '</tbody></table></div></section>';
 }
@@ -396,13 +402,13 @@ function viewMe() {
     '<div class="fld"><label for="me_cable">Usual cable type</label><select id="me_cable">' + CABLE_TYPES.map(x => '<option' + (ME.cable === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div></div>' +
     '<div class="tools"><button class="btn team" data-saveme>Save my details</button></div></section>';
 }
-const VIEW_URL = 'https://claude.ai/artifact/EwFhPaqbPvYR9j2jSm6D62';
+const VIEW_URL = APP_URL;   // board QR codes open this app at that board (#<board>); the scanner then picks a team
 const qrSvg = t => { if (typeof qrcode !== 'function') return ''; const q = qrcode(0, 'M'); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); };
 function viewLabels() {
   if (!APP_URL || APP_URL.startsWith('__')) return '<div class="empty"><h2>QR labels are not set up yet</h2></div>';
-  const card = b => '<div class="qrcard">' + qrSvg(VIEW_URL + '#' + b.board) + '<b>' + esc(b.board) + '</b><small>Scan to view progress · ' + esc(b.area) + '</small></div>';
+  const card = b => '<div class="qrcard">' + qrSvg(VIEW_URL + '#' + b.board) + '<b>' + esc(b.board) + '</b><small>Scan to open this board · ' + esc(b.area) + '</small></div>';
   return '<section class="panel"><div class="ph"><h3>Board QR labels</h3>' + (S.downloads ? '<button class="btn team" data-labels>Download printable label sheet</button>' : '') + '</div>' +
-    '<p style="margin:0;color:var(--muted);font-size:14px">Each board gets one code. Anyone who scans it sees that board’s progress, view only. Site team members then tap Installers, Testers or QA/QC on that page to open the board in the tracker.</p>' +
+    '<p style="margin:0;color:var(--muted);font-size:14px">Each board gets one code. Scanning it opens this app at that board (team members sign in once), then they tap Installers, Testers or QA/QC to work on it.</p>' +
     '<div class="qrgrid">' + boardList().slice(0, 6).map(card).join('') + '</div><p style="margin:0;color:var(--muted);font-size:13px">Showing the first six boards. The download has every board.</p></section>';
 }
 function viewActivity() {
@@ -607,7 +613,7 @@ function certCsv(board) {
 }
 function exportLabels() {
   const logo = document.querySelector('.logo').src;
-  const cards = boardList().map(b => '<div class="l"><img class="lg" src="' + logo + '" alt="OKEE"><div class="q">' + qrSvg(VIEW_URL + '#' + b.board) + '</div><b>' + esc(b.board) + '</b><span>Scan to view progress</span><small>' + esc(b.area) + '</small></div>').join('');
+  const cards = boardList().map(b => '<div class="l"><img class="lg" src="' + logo + '" alt="OKEE"><div class="q">' + qrSvg(VIEW_URL + '#' + b.board) + '</div><b>' + esc(b.board) + '</b><span>Scan to open this board</span><small>' + esc(b.area) + '</small></div>').join('');
   saveFile('HEL16-' + CODE + '-board-QR-labels.html', '<!doctype html><html><head><meta charset="utf-8"><title>HEL16 ' + COLO + ' board QR labels</title><style>body{font-family:Arial,sans-serif;margin:10mm}.g{display:grid;grid-template-columns:repeat(3,60mm);gap:6mm}.l{border:1px dashed #999;border-radius:3mm;padding:4mm;text-align:center;display:grid;gap:1.5mm;justify-items:center;break-inside:avoid}.lg{height:7mm}.q svg{width:36mm;height:36mm}b{font-size:11pt}span{font-size:10pt;font-weight:700}small{font-size:7pt;color:#555}</style></head><body><h1 style="font-size:14pt">HEL16 ' + COLO + ' board QR labels (view progress, team links inside)</h1><div class="g">' + cards + '</div></body></html>');
 }
 

@@ -1,7 +1,7 @@
 /* HEL16 Site Tracker offline layer.
    Keeps the app, its libraries and fonts on the phone so it opens with no signal.
    Site data is cached separately by Firestore; this file never touches it. */
-const VERSION = 'hel16-2026-10-20-2';
+const VERSION = 'hel16-2026-10-20-3';
 const SHELL = ['./', 'index.html', 'app.js', 'firebase-shim.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 const FB = 'https://www.gstatic.com/firebasejs/10.14.1/';
 const CDN = [FB + 'firebase-app.js', FB + 'firebase-auth.js', FB + 'firebase-firestore.js', FB + 'firebase-storage.js',
