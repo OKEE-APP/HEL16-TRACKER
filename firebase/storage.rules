@@ -1,0 +1,17 @@
+rules_version = '2';
+// HEL16 Site Tracker photos. Paste into Firebase console → Storage → Rules → Publish.
+// The console may ask to let Storage read Firestore (for the team list): allow it.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true; }
+    function email() { return request.auth.token.email.lower(); }
+    function onTeam() {
+      return signedIn() && (email() in ['joepbc76@gmail.com', 'joe@okee.ie']
+        || firestore.get(/databases/(default)/documents/members/$(email())).data.role in ['editor', 'contributor']);
+    }
+    match /photos/{file} {
+      allow read: if signedIn();
+      allow create: if onTeam() && request.resource.size < 8 * 1024 * 1024 && request.resource.contentType.matches('image/.*');
+    }
+  }
+}

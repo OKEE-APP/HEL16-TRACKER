@@ -1,0 +1,36 @@
+rules_version = '2';
+// HEL16 Site Tracker. Paste into Firebase console → Firestore Database → Rules → Publish.
+// Owners below are always Editors; everyone else needs a document in /members/{their email}.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null && request.auth.token.email_verified == true;
+    }
+    function email() { return request.auth.token.email.lower(); }
+    function isOwner() { return signedIn() && email() in ['joepbc76@gmail.com', 'joe@okee.ie']; }
+    function memberPath() { return /databases/$(database)/documents/members/$(email()); }
+    function hasRole(roles) {
+      return signedIn() && (isOwner() || (exists(memberPath()) && get(memberPath()).data.role in roles));
+    }
+    function canRead()  { return hasRole(['editor', 'contributor', 'viewer']); }
+    function canWrite() { return hasRole(['editor', 'contributor']); }
+    function isEditor() { return hasRole(['editor']); }
+
+    match /boards/{id} {
+      allow read: if canRead();
+      allow update: if canWrite();
+      allow create, delete: if isEditor();
+    }
+    match /tests/{id} { allow read: if canRead(); allow create, update: if canWrite(); allow delete: if isEditor(); }
+    match /qa/{id}    { allow read: if canRead(); allow create, update: if canWrite(); allow delete: if isEditor(); }
+    match /events/{id} { allow read: if canRead(); allow create, update: if canWrite(); allow delete: if isEditor(); }
+    match /people/{uid} {
+      allow read: if canRead();
+      allow write: if (signedIn() && request.auth.uid == uid) || isEditor();
+    }
+    match /members/{mail} {
+      allow read: if isEditor() || (signedIn() && mail == email());
+      allow write: if isEditor();
+    }
+  }
+}
