@@ -275,8 +275,24 @@ async function loadSite() {
         o.n++; ['inst','bt','ft','te','lab','qa'].forEach(s => { if (st[s]) o[s]++; }); if (qv === 'pass') o.post++; if (pv === 'fail' || qv === 'fail') o.fail++; });
     });
     S.site = out; S.siteAt = Date.now();
+    const all = {}; bs.docs.forEach(d => all[d.id] = d.data()); publishProgress(all);
   } catch (e) { toast('Could not load the site overview. Check your signal and tap Refresh.'); S.site = S.site || {}; S.siteAt = Date.now(); }
   finally { S.siteLoading = false; render(); }
+}
+/* ---------- public progress: overall figures per board, readable without signing in (progress.html) ---------- */
+const PUB_KEY = 'hel16.pub';
+let pubSent = {}; try { pubSent = JSON.parse(localStorage.getItem(PUB_KEY) || '{}'); } catch (e) {}
+function publishProgress(map) {
+  if (!S.db || S.readOnly || !navigator.onLine) return;
+  Object.entries(map || {}).forEach(([id, b]) => {
+    if (!b || !b.circuits) return;
+    const t = { n: 0, s: [0, 0, 0, 0, 0, 0], blk: 0 };
+    Object.values(b.circuits).forEach(c => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return; const st = c.st || {};
+      t.n++; if (c.blocker) t.blk++; ['inst', 'bt', 'ft', 'te', 'lab', 'qa'].forEach((k, i) => { if (st[k]) t.s[i]++; }); });
+    const j = JSON.stringify({ b: id, c: b.colo || id.split('-')[0], cell: b.cell || '', area: b.area || '', o: b.order || 0, t });
+    if (pubSent[id] === j) return;
+    S.db.doc('progress/' + id).set({ colo: b.colo || id.split('-')[0], at: Date.now(), j }).then(() => { pubSent[id] = j; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {});
+  });
 }
 let unsubs = [];
 function subscribe() {
@@ -284,7 +300,7 @@ function subscribe() {
   S.boards = {}; S.tests = {}; S.qa = {}; S.loaded = false; render();
   const db = S.db; if (!db) return;
   const sub = (coll, key, after) => unsubs.push(db.collection(coll).where('colo', '==', CODE).limit(500).onSnapshot(snap => { const n = {}; snap.docs.forEach(d => n[d.id] = d.data()); S[key] = n; if (after) after(); render(); }, err => { if (coll === 'boards') { S.failed = 'The site data stopped updating (' + err.code + '). Reload the page to reconnect.'; S.loaded = false; render(); } }));
-  sub('boards', 'boards', () => { S.loaded = true; if (!cellsOf().includes(S.cell)) S.cell = cellsOf()[0];
+  sub('boards', 'boards', () => { S.loaded = true; publishProgress(S.boards); if (!cellsOf().includes(S.cell)) S.cell = cellsOf()[0];
     if (S.pendingRef) { const c = findCircuit(S.pendingRef); if (c) { S.board = c.board; S.cell = c.cell; S.pendingRef = null; setTimeout(() => openSheet(c.ref), 0); } } });
   sub('tests', 'tests'); sub('qa', 'qa');
 }
@@ -402,13 +418,13 @@ function viewMe() {
     '<div class="fld"><label for="me_cable">Usual cable type</label><select id="me_cable">' + CABLE_TYPES.map(x => '<option' + (ME.cable === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div></div>' +
     '<div class="tools"><button class="btn team" data-saveme>Save my details</button></div></section>';
 }
-const VIEW_URL = APP_URL;   // board QR codes open this app at that board (#<board>); the scanner then picks a team
+const VIEW_URL = APP_URL.replace(/[^/]*$/, '') + 'progress.html';   // board QR codes open the public progress page at that board; crew tap through to the app
 const qrSvg = t => { if (typeof qrcode !== 'function') return ''; const q = qrcode(0, 'M'); q.addData(t); q.make(); return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true }); };
 function viewLabels() {
   if (!APP_URL || APP_URL.startsWith('__')) return '<div class="empty"><h2>QR labels are not set up yet</h2></div>';
-  const card = b => '<div class="qrcard">' + qrSvg(VIEW_URL + '#' + b.board) + '<b>' + esc(b.board) + '</b><small>Scan to open this board · ' + esc(b.area) + '</small></div>';
+  const card = b => '<div class="qrcard">' + qrSvg(VIEW_URL + '#' + b.board) + '<b>' + esc(b.board) + '</b><small>Scan to view progress · ' + esc(b.area) + '</small></div>';
   return '<section class="panel"><div class="ph"><h3>Board QR labels</h3>' + (S.downloads ? '<button class="btn team" data-labels>Download printable label sheet</button>' : '') + '</div>' +
-    '<p style="margin:0;color:var(--muted);font-size:14px">Each board gets one code. Scanning it opens this app at that board (team members sign in once), then they tap Installers, Testers or QA/QC to work on it.</p>' +
+    '<p style="margin:0;color:var(--muted);font-size:14px">Each board gets one code. Anyone who scans it, including client reps, sees that board’s overall progress without signing in. Site team members then tap Installers, Testers or QA/QC to open the board in the tracker.</p>' +
     '<div class="qrgrid">' + boardList().slice(0, 6).map(card).join('') + '</div><p style="margin:0;color:var(--muted);font-size:13px">Showing the first six boards. The download has every board.</p></section>';
 }
 function viewActivity() {
@@ -613,7 +629,7 @@ function certCsv(board) {
 }
 function exportLabels() {
   const logo = document.querySelector('.logo').src;
-  const cards = boardList().map(b => '<div class="l"><img class="lg" src="' + logo + '" alt="OKEE"><div class="q">' + qrSvg(VIEW_URL + '#' + b.board) + '</div><b>' + esc(b.board) + '</b><span>Scan to open this board</span><small>' + esc(b.area) + '</small></div>').join('');
+  const cards = boardList().map(b => '<div class="l"><img class="lg" src="' + logo + '" alt="OKEE"><div class="q">' + qrSvg(VIEW_URL + '#' + b.board) + '</div><b>' + esc(b.board) + '</b><span>Scan to view progress</span><small>' + esc(b.area) + '</small></div>').join('');
   saveFile('HEL16-' + CODE + '-board-QR-labels.html', '<!doctype html><html><head><meta charset="utf-8"><title>HEL16 ' + COLO + ' board QR labels</title><style>body{font-family:Arial,sans-serif;margin:10mm}.g{display:grid;grid-template-columns:repeat(3,60mm);gap:6mm}.l{border:1px dashed #999;border-radius:3mm;padding:4mm;text-align:center;display:grid;gap:1.5mm;justify-items:center;break-inside:avoid}.lg{height:7mm}.q svg{width:36mm;height:36mm}b{font-size:11pt}span{font-size:10pt;font-weight:700}small{font-size:7pt;color:#555}</style></head><body><h1 style="font-size:14pt">HEL16 ' + COLO + ' board QR labels (view progress, team links inside)</h1><div class="g">' + cards + '</div></body></html>');
 }
 

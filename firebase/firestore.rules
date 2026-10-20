@@ -28,6 +28,8 @@ service cloud.firestore {
       allow read: if canRead();
       allow write: if (signedIn() && request.auth.uid == uid) || isEditor();
     }
+    // overall progress per board, shown on the public progress page (no sign-in)
+    match /progress/{id} { allow read: if true; allow write: if canWrite(); }
     match /members/{mail} {
       allow read: if isEditor() || (signedIn() && mail == email());
       allow write: if isEditor();

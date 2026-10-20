@@ -1,8 +1,8 @@
 /* HEL16 Site Tracker offline layer.
    Keeps the app, its libraries and fonts on the phone so it opens with no signal.
    Site data is cached separately by Firestore; this file never touches it. */
-const VERSION = 'hel16-2026-10-20-3';
-const SHELL = ['./', 'index.html', 'app.js', 'firebase-shim.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
+const VERSION = 'hel16-2026-10-20-4';
+const SHELL = ['./', 'index.html', 'progress.html', 'app.js', 'firebase-shim.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png'];
 const FB = 'https://www.gstatic.com/firebasejs/10.14.1/';
 const CDN = [FB + 'firebase-app.js', FB + 'firebase-auth.js', FB + 'firebase-firestore.js', FB + 'firebase-storage.js',
   'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js',
@@ -34,7 +34,7 @@ self.addEventListener('fetch', e => {
     // the app itself: from the phone first, so it opens instantly with or without signal
     e.respondWith((async () => {
       const c = await caches.open(VERSION);
-      const key = req.mode === 'navigate' ? 'index.html' : req;
+      const key = req.mode === 'navigate' ? (url.pathname.endsWith('/progress.html') ? 'progress.html' : 'index.html') : req;
       const hit = await c.match(key, { ignoreSearch: req.mode === 'navigate' });
       if (hit) return hit;
       try { return await fetch(req); } catch (x) { return (await c.match('index.html')) || Response.error(); }
