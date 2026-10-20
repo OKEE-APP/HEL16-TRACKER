@@ -195,7 +195,7 @@ async function openAccount(me, role) {
   host.innerHTML = '<div class="sheet" role="dialog" aria-label="Account"><div class="sh"><h2>Account</h2><button class="btn" data-x>Close</button></div>' +
     '<section class="panel"><div><b>' + esc(me.name) + '</b><div class="by">' + esc(me.email) + ' · ' + esc(roleName) + '</div></div><div class="tools"><button class="btn" data-out>Sign out</button></div>' +
     '<p class="by" style="margin:0">Signing out removes this phone\'s copy of the site data. Anything still held offline is sent first only if you have signal.</p></section>' +
-    (role === 'editor' ? '<section class="panel" id="teamPanel"><h3>Team access</h3><p class="by" style="margin:0">Add people by the email they sign in with.</p>' +
+    (role === 'editor' ? '<section class="panel" id="teamPanel"><h3>Team access</h3><p class="by" style="margin:0">Add people by the email they sign in with. Adding someone doesn’t message them: after Add, send the invite by WhatsApp, text or email.</p>' +
       '<div class="tools"><input id="tmEmail" type="email" placeholder="name@example.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:9px 12px;min-height:42px">' +
       '<select id="tmRole" class="sel">' + ROLES.map(r => '<option value="' + r[0] + '"' + (r[0] === 'contributor' ? ' selected' : '') + '>' + r[1] + '</option>').join('') + '</select><button class="btn team" data-add>Add</button></div>' +
       '<div id="tmList" class="by">Loading…</div></section>' +
@@ -220,17 +220,19 @@ async function openAccount(me, role) {
       const rows = qs.docs.map(d => [d.id, d.data().role]).sort((a, b) => a[0].localeCompare(b[0]));
       list.innerHTML = '<div class="checks">' + OWNERS.map(e => '<div class="chk" style="justify-content:space-between"><span>' + esc(e) + '</span><span class="chip">Owner</span></div>').join('') +
         rows.filter(r => !OWNERS.includes(r[0])).map(([e, r]) => '<div class="chk" style="justify-content:space-between;flex-wrap:wrap"><span style="overflow-wrap:anywhere">' + esc(e) + '</span><span class="tools"><select class="sel" data-role="' + esc(e) + '">' +
-          ROLES.map(x => '<option value="' + x[0] + '"' + (x[0] === r ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select><button class="btn danger" data-rm="' + esc(e) + '">Remove</button></span></div>').join('') + '</div>';
+          ROLES.map(x => '<option value="' + x[0] + '"' + (x[0] === r ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select><button class="btn" data-inv="' + esc(e) + '" data-r="' + esc(r) + '">Send invite</button><button class="btn danger" data-rm="' + esc(e) + '">Remove</button></span></div>').join('') + '</div>';
     } catch (e) { list.textContent = 'Could not load the team list. Check your signal.'; }
   };
   draw();
   host.querySelector('[data-add]').onclick = async () => {
     const e = host.querySelector('#tmEmail').value.trim().toLowerCase(), r = host.querySelector('#tmRole').value;
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) { host.querySelector('#tmEmail').focus(); return; }
-    try { await fb.setDoc(fb.doc(fs, 'members', e), { role: r, addedBy: me.email, addedAt: Date.now() }); host.querySelector('#tmEmail').value = ''; draw(); } catch (x) { list.textContent = 'Could not add (' + (x.code || 'error') + '). Check your signal.'; }
+    try { await fb.setDoc(fb.doc(fs, 'members', e), { role: r, addedBy: me.email, addedAt: Date.now() }); host.querySelector('#tmEmail').value = ''; await draw(); const how = await sendInvite(e, r); if (how === 'copied') list.insertAdjacentHTML('afterbegin', '<p class="by" style="margin:0 0 8px">Invite for ' + esc(e) + ' copied. Paste it into WhatsApp, text or email.</p>'); } catch (x) { list.textContent = 'Could not add (' + (x.code || 'error') + '). Check your signal.'; }
   };
   list.addEventListener('change', async e => { const s = e.target.closest('[data-role]'); if (!s) return; try { await fb.updateDoc(fb.doc(fs, 'members', s.dataset.role), { role: s.value }); } catch (x) { draw(); } });
   list.addEventListener('click', async e => {
+    const iv = e.target.closest('[data-inv]');
+    if (iv) { const how = await sendInvite(iv.dataset.inv, iv.dataset.r); if (how === 'copied') { iv.textContent = 'Copied'; setTimeout(() => iv.textContent = 'Send invite', 3000); } return; }
     const b = e.target.closest('[data-rm]'); if (!b) return;
     if (!confirmInline(b, 'Tap again')) return;
     try { await fb.deleteDoc(fb.doc(fs, 'members', b.dataset.rm)); draw(); } catch (x) { draw(); }
@@ -252,6 +254,20 @@ async function openAccount(me, role) {
       msg.textContent = 'Done: imported ' + writes.length + ' records.';
     } catch (x) { msg.textContent = 'Import failed (' + ((x && (x.code || x.message)) || 'error') + ').'; }
   };
+}
+function inviteText(email, role) {
+  const url = location.origin + location.pathname.replace(/[^/]*$/, '');
+  const what = role === 'viewer' ? 'see progress' : 'record your work';
+  return 'You have been added to the OKEE HEL16 Site Tracker so you can ' + what + '.\n\n' +
+    '1. Open ' + url + ' (with signal)\n2. Sign in with Google, or "Sign in with email" then "Create account", using ' + email + '\n' +
+    '3. Add it to your home screen (iPhone: Safari > Share > Add to Home Screen. Android: Chrome > menu > Install app)\n\nAfter that it works without signal.';
+}
+async function sendInvite(email, role) {
+  const text = inviteText(email, role);
+  if (navigator.share) { try { await navigator.share({ title: 'HEL16 Site Tracker', text }); return 'shared'; } catch (e) { if (e && e.name === 'AbortError') return 'cancelled'; } }
+  try { await navigator.clipboard.writeText(text); return 'copied'; } catch (e) {}
+  location.href = 'mailto:' + encodeURIComponent(email) + '?subject=' + encodeURIComponent('HEL16 Site Tracker access') + '&body=' + encodeURIComponent(text);
+  return 'email';
 }
 function confirmInline(btn, label) {
   if (btn.dataset.armed) return true;
