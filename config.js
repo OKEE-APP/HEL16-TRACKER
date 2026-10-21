@@ -9,6 +9,8 @@ window.HEL16_CONFIG = {
     messagingSenderId: '160015958358',
     appId: '1:160015958358:web:295e3096a75ad31ee9d6f7',
   },
+  // Turn on once Firebase Storage is set up (Blaze plan). Until then the + Photo button is hidden.
+  photos: false,
   // Always Editors, even before the team list exists. Must match firebase/firestore.rules.
   owners: ['joepbc76@gmail.com', 'joe@okee.ie'],
 };

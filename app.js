@@ -99,23 +99,27 @@ function queue(coll, board, data, ev, opts) {
 }
 const timeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej({ code: 'timeout' }), ms))]);
 let flushing = false, lastErr = '';
+const TRANSIENT = ['offline', 'timeout', 'unavailable', 'deadline-exceeded', 'unauthenticated', 'resource-exhausted', 'cancelled', 'aborted', 'internal', 'unknown', 'error'];
+const FAILED_KEY = 'hel16s.failed';
+let photoErr = '';
+// data first, photos after: a photo that cannot upload never holds up ticks, tests or sign-offs
 async function flush() {
   if (flushing || !S.db) return; flushing = true; updateHold();
   try {
-    for (const p of heldPhotos.slice()) {
-      if (!S.assets) break;
-      const res = await timeout(S.assets.upload(p.blob, { type: 'image/jpeg' }), 60000);
-      outbox.push({ id: uid(), coll: p.coll, board: p.board, data: { circuits: { [p.ref]: { ph: { [res.id]: { t: p.tag, by: S.me.id, at: p.t, u: res.url || '' } } } } }, ev: { act: 'photo', k: p.tag, ref: p.ref, team: S.team, board: p.board, at: p.t, by: S.me.id }, t: p.t });
-      saveOutbox(); await idbDel(p.key); heldPhotos.splice(heldPhotos.indexOf(p), 1); URL.revokeObjectURL(p.url);
-    }
     while (outbox.length) {
       const op = outbox[0], ref = S.db.doc(op.coll + '/' + op.board);
       try { await timeout(ref.update(op.data), 15000); }
       catch (e) {
-        if (e && e.code === 'invalid_argument') {
+        const code = (e && e.code) || 'error';
+        if (code === 'invalid_argument') {
           const snap = await timeout(ref.get(), 15000);
           if (!snap.exists && (op.coll !== 'boards' || op.create)) await timeout(ref.set(merge({ board: op.board, colo: op.board.split('-')[0], circuits: {} }, op.data)), 15000);
           else { outbox.shift(); saveOutbox(); if (snap.exists) S.readOnly = true; toast(snap.exists ? 'Not saved: your access is view only.' : 'That board no longer exists.'); continue; }
+        } else if (!TRANSIENT.includes(code)) {
+          // a change the database refuses for good: park it so everything behind it still sends
+          let failed = []; try { failed = JSON.parse(localStorage.getItem(FAILED_KEY) || '[]'); } catch (x) {}
+          failed.push({ ...op, err: code, failedAt: Date.now() }); try { localStorage.setItem(FAILED_KEY, JSON.stringify(failed)); } catch (x) {}
+          outbox.shift(); saveOutbox(); toast('One change could not be saved (' + code + '). Tell the site lead.'); continue;
         } else throw e;
       }
       if (op.ev) { try { await timeout(S.db.collection('events').doc(op.id).set(op.ev), 15000); } catch (e) {} }
@@ -123,16 +127,32 @@ async function flush() {
     }
     lastErr = '';
   } catch (e) { lastErr = (e && e.code) || 'offline'; }
+  try {
+    for (const p of heldPhotos.slice()) {
+      if (!S.assets || lastErr) break;
+      const res = await timeout(S.assets.upload(p.blob, { type: 'image/jpeg' }), 60000);
+      outbox.push({ id: uid(), coll: p.coll, board: p.board, data: { circuits: { [p.ref]: { ph: { [res.id]: { t: p.tag, by: S.me.id, at: p.t, u: res.url || '' } } } } }, ev: { act: 'photo', k: p.tag, ref: p.ref, team: S.team, board: p.board, at: p.t, by: S.me.id }, t: p.t });
+      saveOutbox(); await idbDel(p.key); heldPhotos.splice(heldPhotos.indexOf(p), 1); URL.revokeObjectURL(p.url);
+    }
+    photoErr = '';
+  } catch (e) { photoErr = (e && e.code) || 'error'; }
   finally { flushing = false; updateHold(); render(); }
+  if (outbox.length && !lastErr) setTimeout(flush, 500);   // photo records just queued
 }
 window.addEventListener('online', flush);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) flush(); });
 setInterval(() => { if (outbox.length || heldPhotos.length) flush(); }, 15000);
 const heldCount = () => outbox.length + heldPhotos.length;
+document.getElementById('hold').addEventListener('click', () => { lastErr = ''; flush(); });
+document.getElementById('hold').style.cursor = 'pointer';
 function updateHold() {
-  const el = document.getElementById('hold'), n = heldCount(), off = !navigator.onLine || (lastErr && n);
-  el.className = 'hold' + (n ? ' held' : '') + (off ? ' off' : '');
-  el.querySelector('span').textContent = !S.db ? (S.failed ? 'Not connected' : 'Connecting') : n ? (off ? n + ' held on this phone · sends when signal returns' : flushing ? 'Sending ' + n + '…' : n + ' waiting to send') : 'All saved';
+  const el = document.getElementById('hold'), n = outbox.length, ph = heldPhotos.length, off = !navigator.onLine || (lastErr && n);
+  el.className = 'hold' + (n || ph ? ' held' : '') + (off ? ' off' : '');
+  const photos = ph ? (ph + ' photo' + (ph > 1 ? 's' : '') + ' kept on this phone' + (!S.assets ? ' (photo upload not switched on yet)' : '')) : '';
+  el.querySelector('span').textContent = !S.db ? (S.failed ? 'Not connected' : 'Connecting')
+    : n ? (off ? n + ' held on this phone · sends when signal returns' : flushing ? 'Sending ' + n + '…' : n + ' waiting to send · tap to send')
+    : photos || 'All saved';
+  el.title = 'Tap to send now';
 }
 
 /* ---------- shared data (server + anything still held on this phone) ---------- */

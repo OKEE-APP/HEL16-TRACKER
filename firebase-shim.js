@@ -39,7 +39,8 @@ const auth = fb.getAuth(app);
 let fs;
 try { fs = fb.initializeFirestore(app, { localCache: fb.persistentLocalCache({ tabManager: fb.persistentMultipleTabManager() }) }); }
 catch (e) { fs = fb.getFirestore(app); }
-let storage = null; try { storage = fb.getStorage(app); } catch (e) {}
+// photo upload needs Firebase Storage (Blaze plan); until config.js sets photos: true, photos stay on the phone
+let storage = null; if (CFG.photos) { try { storage = fb.getStorage(app); } catch (e) {} }
 
 /* ---------- db adapter: the same calls app.js made on Claude's database ---------- */
 const mapErr = e => { const c = e && e.code; throw { code: c === 'not-found' || c === 'permission-denied' ? 'invalid_argument' : c === 'unavailable' ? 'offline' : (c || 'error'), message: e && e.message }; };
