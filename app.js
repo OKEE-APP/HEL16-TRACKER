@@ -10,16 +10,18 @@ try { setColo(localStorage.getItem('hel16s.colo') || 'COLO3'); } catch (e) {}
 const IR_MIN = 1.0, RCD_MAX = 300, RCD5_MAX = 40;
 
 const TEAMS = {
-  install: { name: 'Installers', tabs: [['boards','Boards'],['today','Today'],['activity','Activity']], blurb: 'Pull cables, terminate both ends and label. Tap a stage when it is done.' },
-  test:    { name: 'Testers',    tabs: [['boards','Test sheets'],['results','Results'],['me','My details'],['activity','Activity']], blurb: 'Record pre-connection and post-connection test results on the board test record sheet.' },
+  install: { name: 'Installers', tabs: [['boards','Boards'],['today','Today'],['activity','Activity']], blurb: 'Pull cables and terminate both ends. Tap a stage when it is done.' },
+  test:    { name: 'Testers',    tabs: [['boards','Test sheets'],['results','Results'],['me','My details'],['activity','Activity']], blurb: 'Record pre-connection and post-connection test results on the board test record sheet, and mark circuits labelled.' },
   qa:      { name: 'QA/QC',      tabs: [['boards','Inspect'],['results','Test results'],['labels','QR labels'],['activity','Activity']], blurb: 'Inspect terminations and labelling, review the tests and sign off each circuit.' },
 };
 const INSTALL = [
   { k: 'inst', s: 'PULL', l: 'Cable pulled' },
   { k: 'bt',   s: 'BT',   l: 'Terminated at board' },
   { k: 'ft',   s: 'FT',   l: 'Terminated at load' },
-  { k: 'lab',  s: 'LAB',  l: 'Labelled' },
 ];
+// labelling is done by the Testers (quick-tap LAB on each circuit, and a Labelling tab on the test sheet)
+const LABEL = { k: 'lab', s: 'LAB', l: 'Labelled' };
+const STAGES = INSTALL.concat(LABEL);
 const TERM_CHECKS = [['size','Cable type and size match the schedule'],['gland','Gland fitted and earthed (or not needed)'],['torque','Conductors terminated and torqued'],['lugs','Ferrules / lugs fitted and crimped'],['cores','Cores identified (phase colours / numbers)'],['ident','Cable ident fitted at this end']];
 const LAB_CHECKS = [['board','Circuit label fitted at the board'],['field','Label fitted at the load / outlet'],['chart','Board circuit chart updated']];
 const CABLE_TYPES = ['NHXH','NYMJ','N2XH','NYY','CYY','LSF','PVC','PVC/SWA/PVC','PVC/SWA/XLPE','XLPE','XLPE/SWA/XLPE','PH30','PH60','PH90','PH120'];
@@ -205,7 +207,7 @@ const termDone = q => q && q.c && TERM_CHECKS.every(([k]) => q.c[k]);
 const labDone = q => q && q.c && LAB_CHECKS.every(([k]) => q.c[k]);
 function signReqs(c) {
   return [
-    ['Installers', 'Cable pulled', !!c.st.inst], ['Installers', 'Terminated at board', !!c.st.bt], ['Installers', 'Terminated at load', !!c.st.ft], ['Installers', 'Labelled', !!c.st.lab],
+    ['Installers', 'Cable pulled', !!c.st.inst], ['Installers', 'Terminated at board', !!c.st.bt], ['Installers', 'Terminated at load', !!c.st.ft], ['Testers', 'Labelled', !!c.st.lab],
     ['Testers', 'Pre-connection test passed' + (impTested(c) && preVerdict(c, c.te.pre) !== 'pass' ? ' (tested before the app)' : ''), preVerdict(c, c.te.pre) === 'pass' || impTested(c)], ['Testers', 'Post-connection test passed' + (impTested(c) && postVerdict(c, c.te.post) !== 'pass' ? ' (tested before the app)' : ''), postVerdict(c, c.te.post) === 'pass' || impTested(c)],
     ['QA/QC', 'Board-end termination checked', !!termDone(c.qa.bt)], ['QA/QC', 'Field-end termination checked', !!termDone(c.qa.ft)], ['QA/QC', 'Labelling checked', !!labDone(c.qa.lab)],
   ];
@@ -337,7 +339,7 @@ function teamLadder(cs) {
   const act = cs.filter(isActive), n = act.length;
   let items;
   if (S.team === 'install') items = INSTALL.map(s => [s.s, act.filter(c => c.st[s.k]).length]);
-  else if (S.team === 'test') items = [['PRE', act.filter(c => preVerdict(c, c.te.pre) === 'pass').length], ['POST', act.filter(c => postVerdict(c, c.te.post) === 'pass').length], ['READY', act.filter(c => c.st.inst).length]];
+  else if (S.team === 'test') items = [['PRE', act.filter(c => preVerdict(c, c.te.pre) === 'pass').length], ['POST', act.filter(c => postVerdict(c, c.te.post) === 'pass').length], ['LAB', act.filter(c => c.st.lab).length], ['READY', act.filter(c => c.st.inst).length]];
   else items = [['BT', act.filter(c => termDone(c.qa.bt)).length], ['FT', act.filter(c => termDone(c.qa.ft)).length], ['LAB', act.filter(c => labDone(c.qa.lab)).length], ['QA', act.filter(c => c.st.qa).length]];
   return '<div class="ladder" style="--n:' + items.length + '">' + items.map(([l, d]) => '<div class="rung"><span class="lbl">' + l + '</span><div class="bar"><i style="width:' + pct(d, n) + '%;background:' + (l === 'QA' ? 'var(--t-qa)' : 'var(--done)') + '"></i></div><span class="v">' + d + '/' + n + '</span></div>').join('') + '</div>';
 }
@@ -356,22 +358,26 @@ function viewBoards() {
 function othersChips(c) {
   const ch = [];
   if (S.team !== 'install') ch.push(...INSTALL.map(s => ['' + s.s, c.st[s.k] ? 'on' : '']));
+  if (S.team !== 'test') ch.push([LABEL.s, c.st.lab ? 'on' : '']);
   if (S.team !== 'test') { const imp = impTested(c), p = imp ? 'pass' : preVerdict(c, c.te.pre), q = imp && !c.te.post ? 'pass' : postVerdict(c, c.te.post); ch.push(['PRE', p === 'pass' ? 'on' : p === 'fail' ? 'fail' : ''], ['POST', q === 'pass' ? 'on' : q === 'fail' ? 'fail' : '']); }
   if (S.team !== 'qa') ch.push(['QA', c.st.qa ? 'on' : '']);
   return '<span class="others">' + ch.map(([l, k]) => '<b class="' + k + '">' + l + '</b>').join('') + '</span>';
+}
+function stageBtn(c, s) {
+  const v = c.st[s.k], now = v && v.d === todayIso();
+  return '<button class="sbtn' + (v ? ' on' : '') + (now ? ' now' : '') + '" data-stage="' + s.k + '" data-ref="' + esc(c.ref) + '"' + (S.readOnly ? ' disabled' : '') + ' aria-label="' + s.l + (v ? ' done ' + fmtDMY(v.d) : ' not done') + '"><span class="k">' + s.s + '</span><span class="d">' + (v ? fmtDM(v.d) : '—') + '</span></button>';
 }
 function rowHtml(c) {
   const info = '<button class="cinfo" data-open="' + esc(c.ref) + '"><span class="r1"><span class="circ">' + esc(c.circ || c.dev || '#' + c.seq) + '</span><span class="ref">' + esc(c.ref) + (c.dev ? ' · ' + esc(c.dev) : '') + '</span>' + (c.blocker ? '<span class="chip block">' + esc(c.blocker) + '</span>' : '') + '</span><span class="desc">' + esc(c.desc) + '</span>' + othersChips(c) + '</button>';
   if (!isActive(c)) return '<div class="crow inactive">' + info + '<span class="chip">' + esc(c.status) + '</span></div>';
   let btns = '', cls = '';
   if (S.team === 'install') {
-    btns = INSTALL.map(s => { const v = c.st[s.k], now = v && v.d === todayIso();
-      return '<button class="sbtn' + (v ? ' on' : '') + (now ? ' now' : '') + '" data-stage="' + s.k + '" data-ref="' + esc(c.ref) + '"' + (S.readOnly ? ' disabled' : '') + ' aria-label="' + s.l + (v ? ' done ' + fmtDMY(v.d) : ' not done') + '"><span class="k">' + s.s + '</span><span class="d">' + (v ? fmtDM(v.d) : '—') + '</span></button>'; }).join('');
+    btns = INSTALL.map(s => stageBtn(c, s)).join('');
     cls = c.blocker ? ' blocked' : '';
   } else if (S.team === 'test') {
     const p = preVerdict(c, c.te.pre), q = postVerdict(c, c.te.post);
     const b = (k, l, v) => '<button class="sbtn ' + (v === 'pass' ? 'on' : v === 'fail' ? 'fail' : v === 'inc' ? 'part' : '') + '" data-test="' + k + '" data-ref="' + esc(c.ref) + '"><span class="k">' + l + '</span><span class="d">' + ({ pass: 'pass', fail: 'FAIL', inc: 'part', none: '—' })[v] + '</span></button>';
-    btns = (impTested(c) && p === 'none' ? '<button class="sbtn on" data-test="pre" data-ref="' + esc(c.ref) + '" title="Marked tested in the original tracker"><span class="k">PRE</span><span class="d">imported</span></button>' : b('pre', 'PRE', p)) + b('post', 'POST', q); cls = (p === 'fail' || q === 'fail') ? ' failed' : '';
+    btns = (impTested(c) && p === 'none' ? '<button class="sbtn on" data-test="pre" data-ref="' + esc(c.ref) + '" title="Marked tested in the original tracker"><span class="k">PRE</span><span class="d">imported</span></button>' : b('pre', 'PRE', p)) + b('post', 'POST', q) + stageBtn(c, LABEL); cls = (p === 'fail' || q === 'fail') ? ' failed' : '';
   } else {
     const st = qaState(c), d = c => ['bt','ft','lab'].map(k => [k, k === 'lab' ? labDone(c.qa[k]) : termDone(c.qa[k])]);
     btns = d(c).map(([k, ok]) => '<button class="sbtn' + (ok ? ' on' : '') + '" data-open="' + esc(c.ref) + '"><span class="k">' + k.toUpperCase() + '</span><span class="d">' + (ok ? 'checked' : '—') + '</span></button>').join('') +
@@ -384,7 +390,7 @@ function filtered(b) {
   const q = S.q.trim().toLowerCase();
   return circuitsOf(b).filter(c => {
     if (q && !(c.ref + ' ' + c.circ + ' ' + c.desc + ' ' + c.dev + ' ' + c.term).toLowerCase().includes(q)) return false;
-    if (S.filter === 'todo') return isActive(c) && (S.team === 'install' ? INSTALL.some(s => !c.st[s.k]) : S.team === 'test' ? (preVerdict(c, c.te.pre) !== 'pass' || postVerdict(c, c.te.post) !== 'pass') : !c.st.qa);
+    if (S.filter === 'todo') return isActive(c) && (S.team === 'install' ? INSTALL.some(s => !c.st[s.k]) : S.team === 'test' ? (preVerdict(c, c.te.pre) !== 'pass' || postVerdict(c, c.te.post) !== 'pass' || !c.st.lab) : !c.st.qa);
     if (S.filter === 'fail') return preVerdict(c, c.te.pre) === 'fail' || postVerdict(c, c.te.post) === 'fail';
     return true;
   });
@@ -469,20 +475,27 @@ const byLine = q => q && q.at ? 'By ' + esc(nameOf(q.by)) + ' · ' + esc(fmtDMY(
 const kvOf = c => '<div class="kv">' + [['Board', c.board], ['Device', c.dev], ['Terminal', c.term], ['E-box', c.ebox], ['Cable', c.size ? c.size + ' mm²' : ''], ['Points', c.elem], ['Protection', [c.cat, c.dtype, c.rating].filter(Boolean).join(' ')]].filter(x => x[1]).map(x => '<div><span>' + esc(x[0]) + '</span>' + esc(x[1]) + '</div>').join('') + '</div>';
 function sheetInstall(c) {
   const ro = S.readOnly ? ' disabled' : '';
-  return kvOf(c) + '<section class="step"><div class="sth"><h3>Stages</h3></div><div class="req">' + INSTALL.map(s => { const v = c.st[s.k];
-      return '<div class="' + (v ? 'y' : 'n') + '"><i>' + (v ? '✓' : '·') + '</i><span>' + s.l + '</span><small>' + (v ? (v.imp ? 'imported ' : '') + fmtDMY(v.d) + (v.by ? ' · ' + esc(nameOf(v.by)) : '') : '') + '</small>' + (v ? '<button class="btn danger" style="margin-left:auto;min-height:34px;padding:4px 10px" data-clear="' + s.k + '"' + ro + '>Clear</button>' : '<button class="btn team" style="margin-left:auto;min-height:34px;padding:4px 10px" data-mark="' + s.k + '"' + ro + '>Done today</button>') + '</div>'; }).join('') + '</div></section>' +
-    '<section class="step"><div class="sth"><h3>Termination photos (optional)</h3></div>' + photoStrip(c, 'boards', 'install') + '</section>' +
+  return kvOf(c) + '<section class="step"><div class="sth"><h3>Stages</h3></div>' + stageList(c, INSTALL) + '</section>' +
+    INSTALL_SHEET_REST(c, ro);
+}
+function stageList(c, list) {
+  const ro = S.readOnly ? ' disabled' : '';
+  return '<div class="req">' + list.map(s => { const v = c.st[s.k];
+      return '<div class="' + (v ? 'y' : 'n') + '"><i>' + (v ? '✓' : '·') + '</i><span>' + s.l + '</span><small>' + (v ? (v.imp ? 'imported ' : '') + fmtDMY(v.d) + (v.by ? ' · ' + esc(nameOf(v.by)) : '') : '') + '</small>' + (v ? '<button class="btn danger" style="margin-left:auto;min-height:34px;padding:4px 10px" data-clear="' + s.k + '"' + ro + '>Clear</button>' : '<button class="btn team" style="margin-left:auto;min-height:34px;padding:4px 10px" data-mark="' + s.k + '"' + ro + '>Done today</button>') + '</div>'; }).join('') + '</div>';
+}
+function INSTALL_SHEET_REST(c, ro) {
+  return '<section class="step"><div class="sth"><h3>Termination photos (optional)</h3></div>' + photoStrip(c, 'boards', 'install') + '</section>' +
     '<section class="step"><div class="grid2"><div class="fld"><label for="i_block">Blocker</label><select id="i_block"' + ro + '><option value="">None</option>' + BLOCKERS.map(x => '<option' + (c.blocker === x ? ' selected' : '') + '>' + x + '</option>').join('') + '</select></div></div>' +
     '<div class="fld"><label for="i_note">Notes</label><textarea id="i_note"' + ro + '>' + esc(c.note || '') + '</textarea></div><div class="tools"><button class="btn primary" data-savenote' + ro + '>Save note</button></div></section>';
 }
 function testForm(c, kind) {
   const ro = S.readOnly ? ' disabled' : '';
   const p = c.te[kind] || {}, val = k => p[k] ?? '';
-  // opts.q: one-tap values shown under the field (">299" for insulation readings, "N/A" where a reading does not apply)
+  // opts.q: one-tap values shown under the field (">999" for insulation readings, "N/A" where a reading does not apply)
   const inp = (k, l, col, opts = {}) => '<div class="fld"><label for="t_' + k + '">' + l + ' <span class="col">' + col + '</span></label><input id="t_' + k + '" inputmode="decimal" value="' + esc(val(k)) + '"' + (opts.bad ? ' class="bad"' : '') + ro + '>' +
     (opts.q && !S.readOnly ? '<span class="quick">' + opts.q.map(x => '<button type="button" data-quick="t_' + k + '" data-val="' + esc(x) + '">' + esc(x) + '</button>').join('') + '</span>' : '') +
     (opts.hint ? '<span class="hint">' + opts.hint + '</span>' : '') + '</div>';
-  const IRQ = ['>299'], NA = ['N/A'], IRNA = ['>299', 'N/A'];
+  const IRQ = ['>999'], NA = ['N/A'], IRNA = ['>999', 'N/A'];
   const warn = kind === 'pre' ? (!c.st.inst ? 'The installers have not marked this cable as pulled yet.' : '') : (!(c.st.bt && c.st.ft) ? 'The installers have not marked both ends as terminated yet.' : '');
   let body = '';
   if (kind === 'pre') {
@@ -491,10 +504,10 @@ function testForm(c, kind) {
       inp('r12', 'Continuity R1+R2 (P+E) Ω', 'N') + inp('r2', 'R2 (E) Ω', 'O', { hint: 'Optional', q: NA }) + '</div>' +
       '<label class="chk"><input type="checkbox" id="t_ring"' + (p.ring ? ' checked' : '') + ro + '><span>Ring circuit (records P–P, N–N, E–E)</span></label>' +
       '<div class="grid2" id="ringf"' + (p.ring ? '' : ' hidden') + '>' + inp('rpp', 'Ring P–P Ω', 'P') + inp('rnn', 'Ring N–N Ω', 'Q') + inp('ree', 'Ring E–E Ω', 'R') + '</div>' +
-      (S.readOnly ? '' : '<div class="tools"><button type="button" class="btn" data-allir>Set all IR readings to &gt;299</button></div>') +
+      (S.readOnly ? '' : '<div class="tools"><button type="button" class="btn" data-allir>Set all IR readings to &gt;999</button></div>') +
       '<div class="grid2">' + inp('irpn', 'IR P–N MΩ', 'S', { bad: low('irpn'), q: IRQ }) + inp('irpne', 'IR P+N–E MΩ', 'T', { bad: low('irpne'), q: IRQ }) + (c.three ? inp('irppp', 'IR P1P2P3+N–E MΩ', 'U', { bad: low('irppp'), q: IRQ }) : '') + inp('irbus', 'IR busbar to open MCB MΩ', 'V', { hint: 'Optional', bad: low('irbus'), q: IRNA }) + '</div>' +
       '<label class="chk"><input type="checkbox" id="t_pol"' + (p.pol ? ' checked' : '') + ro + '><span>Polarity correct <span class="col">W</span></span></label>' +
-      '<p class="hint" style="margin:0;font-size:12px;color:var(--muted)">Pass needs continuity, every insulation reading at least ' + IR_MIN + ' MΩ, and correct polarity. Type ">299" for an over-range reading. A pass ticks "Tested" for the installers and the office.</p>';
+      '<p class="hint" style="margin:0;font-size:12px;color:var(--muted)">Pass needs continuity, every insulation reading at least ' + IR_MIN + ' MΩ, and correct polarity. Type ">999" for an over-range reading. A pass ticks "Tested" for the installers and the office.</p>';
   } else {
     const needV = c.three ? ['v12','v13','v23'] : ['v' + c.phase + 'n'];
     body = '<div class="grid2">' + postFields(c).map(([k, l, col]) => inp(k, l, col, needV.includes(k) ? {} : { q: NA })).join('') + '</div>' +
@@ -512,8 +525,9 @@ function testForm(c, kind) {
     photoStrip(c, 'tests', kind) + '</section>';
 }
 function sheetTest(c) {
-  if (!ME.name) return kvOf(c) + '<div class="banner warn">Add your tester name, QC no. and test kit in <b>My details</b> first. They go on the certificate.</div><div class="tools"><button class="btn team" data-gome>Go to My details</button></div>';
-  const seg = '<div class="seg" role="group" aria-label="Test">' + [['pre','Pre-connection'],['post','Post-connection']].map(([k, l]) => '<button data-kind="' + k + '" aria-pressed="' + (S.sheetKind === k) + '">' + l + '</button>').join('') + '</div>';
+  const seg = '<div class="seg" role="group" aria-label="Test">' + [['pre','Pre-connection'],['post','Post-connection'],['lab','Labelling']].map(([k, l]) => '<button data-kind="' + k + '" aria-pressed="' + (S.sheetKind === k) + '">' + l + '</button>').join('') + '</div>';
+  if (!ME.name && S.sheetKind !== 'lab') return kvOf(c) + seg + '<div class="banner warn">Add your tester name, QC no. and test kit in <b>My details</b> first. They go on the certificate.</div><div class="tools"><button class="btn team" data-gome>Go to My details</button></div>';
+  if (S.sheetKind === 'lab') return kvOf(c) + seg + '<section class="step"><div class="sth"><h3>Labelling</h3></div>' + stageList(c, [LABEL]) + '<p class="by" style="margin:0">Mark the circuit labelled once its labels are fitted. QA/QC then checks the labelling.</p></section>';
   return kvOf(c) + seg + testForm(c, S.sheetKind || 'pre');
 }
 function checksHtml(list, q, step) {
@@ -605,7 +619,7 @@ function boardFormHtml() {
 function setStage(c, k, val) {
   const prev = c.st[k] || null;
   queue('boards', c.board, { circuits: { [c.ref]: { st: { [k]: val } } } }, { act: val ? 'done' : 'clear', k, ref: c.ref });
-  if (val) toast(INSTALL.find(s => s.k === k).l + ' ✓ ' + (c.circ || c.ref), () => queue('boards', c.board, { circuits: { [c.ref]: { st: { [k]: prev } } } }, { act: 'clear', k, ref: c.ref }));
+  if (val) toast(STAGES.find(s => s.k === k).l + ' ✓ ' + (c.circ || c.ref), () => queue('boards', c.board, { circuits: { [c.ref]: { st: { [k]: prev } } } }, { act: 'clear', k, ref: c.ref }));
 }
 function saveTest(c, kind, next) {
   const g = id => { const el = document.getElementById('t_' + id); return el ? el.value.trim() : undefined; };
@@ -677,7 +691,7 @@ view.addEventListener('click', e => {
   else if (t.dataset.board) { S.board = t.dataset.board; S.q = ''; S.filter = 'all'; render(); window.scrollTo(0, 0); }
   else if ('back' in t.dataset) { S.board = null; render(); }
   else if (t.dataset.filter) { S.filter = t.dataset.filter; render(); }
-  else if (t.dataset.stage) { const c = findCircuit(t.dataset.ref); if (!c) return; if (c.st[t.dataset.stage]) openSheet(c.ref); else setStage(c, t.dataset.stage, stamp()); }
+  else if (t.dataset.stage) { const c = findCircuit(t.dataset.ref); if (!c) return; if (c.st[t.dataset.stage]) openSheet(c.ref, t.dataset.stage === 'lab' ? 'lab' : undefined); else setStage(c, t.dataset.stage, stamp()); }
   else if (t.dataset.test) openSheet(t.dataset.ref, t.dataset.test);
   else if (t.dataset.open) openSheet(t.dataset.open);
   else if ('sheethdr' in t.dataset) openSheet('hdr:' + S.board);
@@ -709,7 +723,7 @@ sheetHost.addEventListener('click', e => {
   const qb = e.target.closest('[data-quick], [data-allir]');
   if (qb) {   // one-tap readings: fill the field, keep the sheet open for the rest of the entries
     const ids = 'allir' in qb.dataset ? ['t_irpn', 't_irpne', 't_irppp'] : [qb.dataset.quick];
-    ids.forEach(id => { const el = document.getElementById(id); if (el) { el.value = qb.dataset.val || '>299'; el.classList.remove('bad'); } });
+    ids.forEach(id => { const el = document.getElementById(id); if (el) { el.value = qb.dataset.val || '>999'; el.classList.remove('bad'); } });
     S.dirty = true; return;
   }
   if (e.target.id === 'scrim' || e.target.id === 'shClose') { if (S.dirty && !S._confirm) { S._confirm = true; toast('You have unsaved entries. Tap Close again to discard them.'); return; } return closeSheet(); }
