@@ -364,7 +364,8 @@ function othersChips(c) {
   return '<span class="others">' + ch.map(([l, k]) => '<b class="' + k + '">' + l + '</b>').join('') + '</span>';
 }
 // the reference shown on a circuit: its drawing ref where one is recorded, else the tracker's own ref
-const refLabel = c => c.drw ? 'Dwg ' + c.drw : c.ref;
+// ELP boards keep the tracker's own ref
+const refLabel = c => (c.drw && !/-ELP\d/.test(c.board || '')) ? 'Dwg ' + c.drw : c.ref;
 function stageBtn(c, s) {
   const v = c.st[s.k], now = v && v.d === todayIso();
   return '<button class="sbtn' + (v ? ' on' : '') + (now ? ' now' : '') + '" data-stage="' + s.k + '" data-ref="' + esc(c.ref) + '"' + (S.readOnly ? ' disabled' : '') + ' aria-label="' + s.l + (v ? ' done ' + fmtDMY(v.d) : ' not done') + '"><span class="k">' + s.s + '</span><span class="d">' + (v ? fmtDM(v.d) : '—') + '</span></button>';
@@ -578,7 +579,7 @@ function renderSheet(force) {
     title = esc(c.circ || c.dev || '#' + c.seq) + ' · ' + esc(c.desc);
     if (S.mode === 'edit') body = formHtml(c, 'edit');
     else body = (!isActive(c) ? '<div class="banner">This circuit is marked ' + esc(c.status) + ', so there is nothing to record.</div>' : S.team === 'install' ? sheetInstall(c) : S.team === 'test' ? sheetTest(c) : sheetQA(c)) + adminHtml(c);
-    title = '<span class="ref">' + esc(refLabel(c)) + (c.drw ? ' · ' + esc(c.ref) : '') + '</span><h2 id="shT">' + title + '</h2>';
+    title = '<span class="ref">' + esc(refLabel(c)) + (refLabel(c) !== c.ref ? ' · ' + esc(c.ref) : '') + '</span><h2 id="shT">' + title + '</h2>';
   }
   host.innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="shT"><div class="sh"><div>' + title + '</div><button class="btn" id="shClose">Close</button></div>' + body + '</div></div>';
   const sc = host.querySelector('.sheet'); if (sc) sc.scrollTop = top;
