@@ -371,7 +371,7 @@ function stageBtn(c, s) {
   return '<button class="sbtn' + (v ? ' on' : '') + (now ? ' now' : '') + '" data-stage="' + s.k + '" data-ref="' + esc(c.ref) + '"' + (S.readOnly ? ' disabled' : '') + ' aria-label="' + s.l + (v ? ' done ' + fmtDMY(v.d) : ' not done') + '"><span class="k">' + s.s + '</span><span class="d">' + (v ? fmtDM(v.d) : '—') + '</span></button>';
 }
 function rowHtml(c) {
-  const info = '<button class="cinfo" data-open="' + esc(c.ref) + '"><span class="r1"><span class="circ">' + esc(c.circ || c.dev || '#' + c.seq) + '</span><span class="ref">' + esc(refLabel(c)) + (c.dev ? ' · ' + esc(c.dev) : '') + '</span>' + (c.blocker ? '<span class="chip block">' + esc(c.blocker) + '</span>' : '') + '</span><span class="desc">' + esc(c.desc) + '</span>' + othersChips(c) + '</button>';
+  const info = '<button class="cinfo" data-open="' + esc(c.ref) + '"><span class="r1"><span class="circ">' + esc(c.circ || c.dev || '#' + c.seq) + '</span><span class="ref">' + esc(refLabel(c)) + (c.dev ? ' · ' + esc(c.dev) : '') + '</span>' + (c.blocker ? '<span class="chip block">' + esc(c.blocker) + '</span>' : '') + (c.qa && c.qa.note && c.qa.note.t ? '<span class="chip part">QA comment</span>' : '') + '</span><span class="desc">' + esc(c.desc) + '</span>' + othersChips(c) + '</button>';
   if (!isActive(c)) return '<div class="crow inactive">' + info + '<span class="chip">' + esc(c.status) + '</span></div>';
   let btns = '', cls = '';
   if (S.team === 'install') {
@@ -462,7 +462,7 @@ function viewActivity() {
   if (!evs.length) return '<div class="empty"><h2>No activity yet</h2><p>Work recorded by this team shows here with who did it and when.</p></div>';
   const lbl0 = { added: 'added circuit', edited: 'edited circuit details', deleted: 'deleted circuit', restored: 'restored circuit', board: 'added board' };
   const lbl = { inst: 'cable pulled', bt: 'board termination', ft: 'field termination', lab: 'labelled', te: 'Tested (from test pass)', qa: 'QA/QC sign-off', pre: 'pre-connection test', post: 'post-connection test', sheet: 'test sheet details' };
-  const verb = e => ({ done: 'marked ' + (lbl[e.k] || e.k), clear: 'cleared ' + (lbl[e.k] || e.k), test: 'saved ' + (lbl[e.k] || 'test') + (e.v ? ' (' + e.v + ')' : ''), check: 'completed the ' + (lbl[e.k] || e.k) + ' check', photo: 'added a photo', sign: 'signed off', unsign: 'withdrew sign-off', blocker: e.v ? 'flagged ' + e.v : 'cleared the blocker', note: 'updated the note' })[e.act] || lbl0[e.act] || 'updated';
+  const verb = e => ({ done: 'marked ' + (lbl[e.k] || e.k), clear: 'cleared ' + (lbl[e.k] || e.k), test: 'saved ' + (lbl[e.k] || 'test') + (e.v ? ' (' + e.v + ')' : ''), check: 'completed the ' + (lbl[e.k] || e.k) + ' check', photo: 'added a photo', sign: 'signed off', unsign: 'withdrew sign-off', blocker: e.v ? 'flagged ' + e.v : 'cleared the blocker', note: 'updated the note', qanote: e.v ? 'added a QA/QC comment: ' + e.v : 'cleared the QA/QC comment' })[e.act] || lbl0[e.act] || 'updated';
   return '<section class="panel"><h3>Latest activity</h3><div class="feed">' + evs.map(e => '<div class="ev"><div class="t"><b>' + esc(nameOf(e.by)) + '</b> ' + esc(verb(e)) + ' · ' + esc((e.board || '').replace(SHORT(), '')) + ' ' + esc(e.ref || '') + ' <span class="chip">' + esc((TEAMS[e.team] || {}).name || '') + '</span></div><span class="w">' + ago(e.at) + '</span></div>').join('') + '</div></section>';
 }
 
@@ -475,7 +475,8 @@ function photoStrip(c, coll, tag) {
     ((S.assets && !S.readOnly) ? '<button class="addph" data-photo="' + coll + '|' + tag + '">+ Photo</button>' : '') + '</div>';
 }
 const byLine = q => q && q.at ? 'By ' + esc(nameOf(q.by)) + ' · ' + esc(fmtDMY(q.d)) : 'Not recorded yet';
-const kvOf = c => '<div class="kv">' + [['Board', c.board], ['Device', c.dev], ['Terminal', c.term], ['E-box', c.ebox], ['Cable', c.size ? c.size + ' mm²' : ''], ['Points', c.elem], ['Protection', [c.cat, c.dtype, c.rating].filter(Boolean).join(' ')]].filter(x => x[1]).map(x => '<div><span>' + esc(x[0]) + '</span>' + esc(x[1]) + '</div>').join('') + '</div>';
+const qaNoteBanner = c => (S.team !== 'qa' && c.qa && c.qa.note && c.qa.note.t) ? '<div class="banner warn"><b>QA/QC comment:</b> ' + esc(c.qa.note.t) + ' <span class="by">(' + esc(nameOf(c.qa.note.by)) + ' · ' + esc(fmtDMY(c.qa.note.d)) + ')</span></div>' : '';
+const kvOf = c => qaNoteBanner(c) + '<div class="kv">' + [['Board', c.board], ['Device', c.dev], ['Terminal', c.term], ['E-box', c.ebox], ['Cable', c.size ? c.size + ' mm²' : ''], ['Points', c.elem], ['Protection', [c.cat, c.dtype, c.rating].filter(Boolean).join(' ')]].filter(x => x[1]).map(x => '<div><span>' + esc(x[0]) + '</span>' + esc(x[1]) + '</div>').join('') + '</div>';
 function sheetInstall(c) {
   const ro = S.readOnly ? ' disabled' : '';
   return kvOf(c) + '<section class="step"><div class="sth"><h3>Stages</h3></div>' + stageList(c, INSTALL) + '</section>' +
@@ -547,7 +548,12 @@ function sheetQA(c) {
   const so = c.st.qa ? '<span class="verdict ok" style="background:var(--t-qa);color:#fff">Signed off</span><span class="by">' + byLine(c.st.qa) + '</span>' + (S.canEdit ? '<div class="tools"><button class="btn danger" data-unsign>Withdraw sign-off</button></div>' : '')
     : '<div class="req">' + reqs.map(([team, l, ok]) => '<div class="' + (ok ? 'y' : 'n') + '"><i>' + (ok ? '✓' : '✗') + '</i><span>' + l + '</span><small>' + team + '</small></div>').join('') + '</div>' +
       (S.canEdit ? '<div class="tools"><button class="btn team" data-sign' + (canSign(c) ? '' : ' disabled') + '>Sign off circuit</button></div>' : '<span class="by">An Editor signs off once every item above is ticked.</span>');
-  return kvOf(c) + step('bt', 'Board-end termination', TERM_CHECKS) + step('ft', 'Field-end termination', TERM_CHECKS) + step('lab', 'Labelling', LAB_CHECKS) + tests +
+  const qn = c.qa.note || {}, ro = S.readOnly ? ' disabled' : '';
+  const comments = '<section class="step"><div class="sth"><h3>QA/QC comments</h3><span class="by">' + (qn.at ? byLine(qn) : 'Optional') + '</span></div>' +
+    '<div class="fld"><label for="qa_note">Comment for this circuit</label><textarea id="qa_note" rows="3" placeholder="e.g. label at load missing, re-torque L2"' + ro + '>' + esc(qn.t || '') + '</textarea>' +
+    '<span class="hint">Installers and Testers see this comment on the circuit.</span></div>' +
+    '<div class="tools"><button class="btn team" data-saveqanote' + ro + '>Save comment</button>' + (qn.t ? '<button class="btn danger" data-clearqanote' + ro + '>Clear</button>' : '') + '</div></section>';
+  return kvOf(c) + step('bt', 'Board-end termination', TERM_CHECKS) + step('ft', 'Field-end termination', TERM_CHECKS) + step('lab', 'Labelling', LAB_CHECKS) + tests + comments +
     '<section class="step"><div class="sth"><h3>QA/QC sign-off</h3></div>' + so + '</section>';
 }
 function sheetHeader(b) {
@@ -575,7 +581,7 @@ function renderSheet(force) {
   else if (S.sheet === 'newboard') { title = '<h2 id="shT">Add board to ' + COLO + '</h2>'; body = boardFormHtml(); }
   else {
     const c = findCircuit(S.sheet); if (!c) { host.innerHTML = ''; return; }
-    wantNames([c.st.inst, c.st.bt, c.st.ft, c.st.lab, c.st.qa, c.te.pre, c.te.post, c.qa.bt, c.qa.ft, c.qa.lab].map(x => x && x.by));
+    wantNames([c.st.inst, c.st.bt, c.st.ft, c.st.lab, c.st.qa, c.te.pre, c.te.post, c.qa.bt, c.qa.ft, c.qa.lab, c.qa.note].map(x => x && x.by));
     title = esc(c.circ || c.dev || '#' + c.seq) + ' · ' + esc(c.desc);
     if (S.mode === 'edit') body = formHtml(c, 'edit');
     else body = (!isActive(c) ? '<div class="banner">This circuit is marked ' + esc(c.status) + ', so there is nothing to record.</div>' : S.team === 'install' ? sheetInstall(c) : S.team === 'test' ? sheetTest(c) : sheetQA(c)) + adminHtml(c);
@@ -770,6 +776,11 @@ sheetHost.addEventListener('click', e => {
   if (b.dataset.photo) { const [coll, tag] = b.dataset.photo.split('|'); photoTarget = { coll, board: c.board, ref: c.ref, tag }; document.getElementById('cam').click(); }
   else if (b.dataset.mark) { setStage(c, b.dataset.mark, stamp()); renderSheet(true); }
   else if (b.dataset.clear) { setStage(c, b.dataset.clear, null); renderSheet(true); }
+  else if ('saveqanote' in b.dataset || 'clearqanote' in b.dataset) {
+    const t = 'clearqanote' in b.dataset ? '' : document.getElementById('qa_note').value.trim();
+    queue('qa', c.board, { circuits: { [c.ref]: { note: t ? { t, ...stamp() } : null } } }, { act: 'qanote', ref: c.ref, v: t.slice(0, 60) });
+    S.dirty = false; toast(t ? 'Comment saved' : 'Comment cleared'); renderSheet(true);
+  }
   else if ('savenote' in b.dataset) { queue('boards', c.board, { circuits: { [c.ref]: { note: document.getElementById('i_note').value.trim() } } }, { act: 'note', ref: c.ref }); S.dirty = false; toast('Note saved'); }
   else if (b.dataset.savetest) saveTest(c, b.dataset.savetest, !!b.dataset.next);
   else if (b.dataset.cleartest) { const k = b.dataset.cleartest; queue('tests', c.board, { circuits: { [c.ref]: { [k]: null } } }, { act: 'clear', k, ref: c.ref }); if (k === 'pre' && c.st.te) queue('boards', c.board, { circuits: { [c.ref]: { st: { te: null } } } }, { act: 'clear', k: 'te', ref: c.ref }); S.dirty = false; renderSheet(true); }
