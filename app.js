@@ -363,12 +363,14 @@ function othersChips(c) {
   if (S.team !== 'qa') ch.push(['QA', c.st.qa ? 'on' : '']);
   return '<span class="others">' + ch.map(([l, k]) => '<b class="' + k + '">' + l + '</b>').join('') + '</span>';
 }
+// the reference shown on a circuit: its drawing ref where one is recorded, else the tracker's own ref
+const refLabel = c => c.drw ? 'Dwg ' + c.drw : c.ref;
 function stageBtn(c, s) {
   const v = c.st[s.k], now = v && v.d === todayIso();
   return '<button class="sbtn' + (v ? ' on' : '') + (now ? ' now' : '') + '" data-stage="' + s.k + '" data-ref="' + esc(c.ref) + '"' + (S.readOnly ? ' disabled' : '') + ' aria-label="' + s.l + (v ? ' done ' + fmtDMY(v.d) : ' not done') + '"><span class="k">' + s.s + '</span><span class="d">' + (v ? fmtDM(v.d) : '—') + '</span></button>';
 }
 function rowHtml(c) {
-  const info = '<button class="cinfo" data-open="' + esc(c.ref) + '"><span class="r1"><span class="circ">' + esc(c.circ || c.dev || '#' + c.seq) + '</span><span class="ref">' + esc(c.ref) + (c.dev ? ' · ' + esc(c.dev) : '') + '</span>' + (c.blocker ? '<span class="chip block">' + esc(c.blocker) + '</span>' : '') + '</span><span class="desc">' + esc(c.desc) + '</span>' + othersChips(c) + '</button>';
+  const info = '<button class="cinfo" data-open="' + esc(c.ref) + '"><span class="r1"><span class="circ">' + esc(c.circ || c.dev || '#' + c.seq) + '</span><span class="ref">' + esc(refLabel(c)) + (c.dev ? ' · ' + esc(c.dev) : '') + '</span>' + (c.blocker ? '<span class="chip block">' + esc(c.blocker) + '</span>' : '') + '</span><span class="desc">' + esc(c.desc) + '</span>' + othersChips(c) + '</button>';
   if (!isActive(c)) return '<div class="crow inactive">' + info + '<span class="chip">' + esc(c.status) + '</span></div>';
   let btns = '', cls = '';
   if (S.team === 'install') {
@@ -389,7 +391,7 @@ function rowHtml(c) {
 function filtered(b) {
   const q = S.q.trim().toLowerCase();
   return circuitsOf(b).filter(c => {
-    if (q && !(c.ref + ' ' + c.circ + ' ' + c.desc + ' ' + c.dev + ' ' + c.term).toLowerCase().includes(q)) return false;
+    if (q && !(c.ref + ' ' + c.circ + ' ' + c.desc + ' ' + c.dev + ' ' + c.term + ' ' + (c.drw || '')).toLowerCase().includes(q)) return false;
     if (S.filter === 'todo') return isActive(c) && (S.team === 'install' ? INSTALL.some(s => !c.st[s.k]) : S.team === 'test' ? (preVerdict(c, c.te.pre) !== 'pass' || postVerdict(c, c.te.post) !== 'pass' || !c.st.lab) : !c.st.qa);
     if (S.filter === 'fail') return preVerdict(c, c.te.pre) === 'fail' || postVerdict(c, c.te.post) === 'fail';
     return true;
@@ -407,7 +409,7 @@ function viewBoard() {
       '<p style="margin:0;font-size:13px;color:var(--muted)">These details go on the board test certificate. Your name, QC no. and test kit from <b>My details</b> are filled in automatically the first time you save a test on this board.</p></section>';
   }
   return '<div class="bhead"><button class="back" data-back>← Cell ' + esc(b.cell.slice(2)) + ' boards</button><h2>' + esc(b.board) + '</h2><span class="ba">' + esc(b.area) + ' · ' + act.length + ' active circuits</span>' + teamLadder(cs) +
-    '<div class="tools"><input type="search" id="q" placeholder="Search circuit, device or description" value="' + esc(S.q) + '" aria-label="Search circuits"><div class="seg" role="group" aria-label="Filter">' + fl.map(([k, l]) => '<button data-filter="' + k + '" aria-pressed="' + (S.filter === k) + '">' + l + '</button>').join('') + '</div></div></div>' +
+    '<div class="tools"><input type="search" id="q" placeholder="Search circuit, drawing ref, device or description" value="' + esc(S.q) + '" aria-label="Search circuits"><div class="seg" role="group" aria-label="Filter">' + fl.map(([k, l]) => '<button data-filter="' + k + '" aria-pressed="' + (S.filter === k) + '">' + l + '</button>').join('') + '</div></div></div>' +
     extra + '<div class="clist" id="list">' + listHtml(b) + '</div>' +
     ((S.canEdit && !S.readOnly && S.team !== 'test') ? '<div class="tools"><button class="btn" data-addc="' + esc(b.board) + '">+ Add circuit to ' + esc(b.board.replace(SHORT(), '')) + '</button><span class="by">Editors only. Tap a circuit to edit or delete it. Changes show in all three team apps.</span></div>' : '');
 }
@@ -576,7 +578,7 @@ function renderSheet(force) {
     title = esc(c.circ || c.dev || '#' + c.seq) + ' · ' + esc(c.desc);
     if (S.mode === 'edit') body = formHtml(c, 'edit');
     else body = (!isActive(c) ? '<div class="banner">This circuit is marked ' + esc(c.status) + ', so there is nothing to record.</div>' : S.team === 'install' ? sheetInstall(c) : S.team === 'test' ? sheetTest(c) : sheetQA(c)) + adminHtml(c);
-    title = '<span class="ref">' + esc(c.ref) + '</span><h2 id="shT">' + title + '</h2>';
+    title = '<span class="ref">' + esc(refLabel(c)) + (c.drw ? ' · ' + esc(c.ref) : '') + '</span><h2 id="shT">' + title + '</h2>';
   }
   host.innerHTML = '<div class="scrim" id="scrim"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="shT"><div class="sh"><div>' + title + '</div><button class="btn" id="shClose">Close</button></div>' + body + '</div></div>';
   const sc = host.querySelector('.sheet'); if (sc) sc.scrollTop = top;
