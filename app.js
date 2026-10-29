@@ -258,7 +258,7 @@ function viewLanding() {
   const cards = [['install','--t-install'],['test','--t-test'],['qa','--t-qa']].map(([k, c]) => '<a class="tcard" href="#' + k + '" style="--c:var(' + c + ')"><h2>' + TEAMS[k].name + '</h2><p>' + TEAMS[k].blurb + '</p><span class="go">Open the ' + TEAMS[k].name + ' app →</span></a>').join('');
   const sb = S.scanBoard && S.boards[S.scanBoard];
   const scanned = S.scanBoard ? '<section class="panel" style="border-top:6px solid var(--hivis)"><h3>Board ' + esc(S.scanBoard) + '</h3>' + (sb ? '<p class="by" style="margin:0">' + esc(sb.area || '') + ' · open it as:</p><div class="tools">' + [['install','Installers'],['test','Testers'],['qa','QA/QC']].map(([k, l]) => '<a class="btn team" style="text-decoration:none;background:var(--t-' + k + ');border-color:var(--t-' + k + ');color:' + (k === 'install' ? '#1a1f25' : '#fff') + '" href="#' + k + '.' + esc(S.scanBoard) + '">' + l + '</a>').join('') + '</div>' : '<p class="by" style="margin:0">This board is not in the tracker. Check with the site lead.</p>') + '</section>' : '';
-  const flow = '<div class="flow"><b>Installers</b> pull, terminate, label → <b>Testers</b> pre- and post-connection tests (a pass ticks "Tested") → <b>QA/QC</b> inspects and signs off, only once everything before it is complete.</div>';
+  const flow = '<div class="flow"><b>Installers</b> pull and terminate → <b>Testers</b> pre- and post-connection tests (a pass ticks "Tested") and labelling → <b>QA/QC</b> inspects and signs off, only once everything before it is complete.</div>';
   const cols = [['Pulled', c => c.st.inst], ['Board term', c => c.st.bt], ['Field term', c => c.st.ft], ['Tested', c => c.st.te], ['Labelled', c => c.st.lab], ['Post-test pass', c => postVerdict(c, c.te.post) === 'pass'], ['QA signed', c => c.st.qa]];
   let rows = '';
   cellsOf().forEach(cell => { const cs = all.filter(c => c.cell === cell); if (!cs.length) return;
@@ -286,7 +286,7 @@ async function loadSite() {
     const [bs, ts] = await Promise.all([S.db.collection('boards').limit(1000).get(), S.db.collection('tests').limit(1000).get()]);
     const tests = {}; ts.docs.forEach(d => tests[d.id] = d.data());
     const out = {};
-    bs.docs.forEach(d => { const b = d.data(), code = b.colo || d.id.split('-')[0], o = out[code] = out[code] || { n: 0, inst: 0, bt: 0, ft: 0, te: 0, lab: 0, post: 0, qa: 0, fail: 0 };
+    bs.docs.forEach(d => { const b = d.data(); if (b.retired) return; const code = b.colo || d.id.split('-')[0], o = out[code] = out[code] || { n: 0, inst: 0, bt: 0, ft: 0, te: 0, lab: 0, post: 0, qa: 0, fail: 0 };
       const tc = (tests[d.id] && tests[d.id].circuits) || {};
       Object.entries(b.circuits || {}).forEach(([ref, c]) => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return;
         const st = c.st || {}, x = { ...c, circ: c.circ, term: c.term, st }, t = tc[ref] || {};
@@ -307,6 +307,7 @@ let pubSent = {}; try { pubSent = JSON.parse(localStorage.getItem(PUB_KEY) || '{
 function publishProgress(map) {
   if (!S.db || S.readOnly || !navigator.onLine) return;
   Object.entries(map || {}).forEach(([id, b]) => {
+    if (b && b.retired) { if (pubSent[id] !== 'retired') S.db.doc('progress/' + id).delete().then(() => { pubSent[id] = 'retired'; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {}); return; }
     if (!b || !b.circuits) return;
     const t = { n: 0, s: [0, 0, 0, 0, 0, 0], blk: 0 };
     Object.values(b.circuits).forEach(c => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return; const st = c.st || {};
@@ -321,7 +322,7 @@ function subscribe() {
   unsubs.forEach(u => { try { u(); } catch (e) {} }); unsubs = [];
   S.boards = {}; S.tests = {}; S.qa = {}; S.loaded = false; render();
   const db = S.db; if (!db) return;
-  const sub = (coll, key, after) => unsubs.push(db.collection(coll).where('colo', '==', CODE).limit(500).onSnapshot(snap => { const n = {}; snap.docs.forEach(d => n[d.id] = d.data()); S[key] = n; if (after) after(); render(); }, err => { if (coll === 'boards') { S.failed = 'The site data stopped updating (' + err.code + '). Reload the page to reconnect.'; S.loaded = false; render(); } }));
+  const sub = (coll, key, after) => unsubs.push(db.collection(coll).where('colo', '==', CODE).limit(500).onSnapshot(snap => { const n = {}; snap.docs.forEach(d => { const x = d.data(); if (!(coll === 'boards' && x && x.retired)) n[d.id] = x; }); S[key] = n; if (after) after(); render(); }, err => { if (coll === 'boards') { S.failed = 'The site data stopped updating (' + err.code + '). Reload the page to reconnect.'; S.loaded = false; render(); } }));
   sub('boards', 'boards', () => { S.loaded = true; publishProgress(S.boards); if (!cellsOf().includes(S.cell)) S.cell = cellsOf()[0];
     if (S.pendingRef) { const c = findCircuit(S.pendingRef); if (c) { S.board = c.board; S.cell = c.cell; S.pendingRef = null; setTimeout(() => openSheet(c.ref), 0); } } });
   sub('tests', 'tests'); sub('qa', 'qa');
@@ -457,12 +458,12 @@ function viewLabels() {
     '<div class="qrgrid">' + boardList().slice(0, 6).map(card).join('') + '</div><p style="margin:0;color:var(--muted);font-size:13px">Showing the first six boards. The download has every board.</p></section>';
 }
 function viewActivity() {
-  const evs = S.events.filter(e => (e.board || '').startsWith(CODE + '-')).filter(e => !S.team || e.team === S.team || e.k === 'qa' || e.k === 'te' || ['added','edited','deleted','restored','board'].includes(e.act));
+  const evs = S.events.filter(e => (e.board || '').startsWith(CODE + '-')).filter(e => !S.team || e.team === S.team || e.k === 'qa' || e.k === 'te' || ['added','edited','deleted','restored','board','schedule'].includes(e.act));
   wantNames(evs.map(e => e.by));
   if (!evs.length) return '<div class="empty"><h2>No activity yet</h2><p>Work recorded by this team shows here with who did it and when.</p></div>';
   const lbl0 = { added: 'added circuit', edited: 'edited circuit details', deleted: 'deleted circuit', restored: 'restored circuit', board: 'added board' };
   const lbl = { inst: 'cable pulled', bt: 'board termination', ft: 'field termination', lab: 'labelled', te: 'Tested (from test pass)', qa: 'QA/QC sign-off', pre: 'pre-connection test', post: 'post-connection test', sheet: 'test sheet details' };
-  const verb = e => ({ done: 'marked ' + (lbl[e.k] || e.k), clear: 'cleared ' + (lbl[e.k] || e.k), test: 'saved ' + (lbl[e.k] || 'test') + (e.v ? ' (' + e.v + ')' : ''), check: 'completed the ' + (lbl[e.k] || e.k) + ' check', photo: 'added a photo', sign: 'signed off', unsign: 'withdrew sign-off', blocker: e.v ? 'flagged ' + e.v : 'cleared the blocker', note: 'updated the note', qanote: e.v ? 'added a QA/QC comment: ' + e.v : 'cleared the QA/QC comment' })[e.act] || lbl0[e.act] || 'updated';
+  const verb = e => ({ done: 'marked ' + (lbl[e.k] || e.k), clear: 'cleared ' + (lbl[e.k] || e.k), test: 'saved ' + (lbl[e.k] || 'test') + (e.v ? ' (' + e.v + ')' : ''), check: 'completed the ' + (lbl[e.k] || e.k) + ' check', photo: 'added a photo', sign: 'signed off', unsign: 'withdrew sign-off', blocker: e.v ? 'flagged ' + e.v : 'cleared the blocker', note: 'updated the note', schedule: 'updated the board schedule' + (e.v ? ': ' + e.v : ''), qanote: e.v ? 'added a QA/QC comment: ' + e.v : 'cleared the QA/QC comment' })[e.act] || lbl0[e.act] || 'updated';
   return '<section class="panel"><h3>Latest activity</h3><div class="feed">' + evs.map(e => '<div class="ev"><div class="t"><b>' + esc(nameOf(e.by)) + '</b> ' + esc(verb(e)) + ' · ' + esc((e.board || '').replace(SHORT(), '')) + ' ' + esc(e.ref || '') + ' <span class="chip">' + esc((TEAMS[e.team] || {}).name || '') + '</span></div><span class="w">' + ago(e.at) + '</span></div>').join('') + '</div></section>';
 }
 

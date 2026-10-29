@@ -200,6 +200,7 @@ async function openAccount(me, role) {
       '<div class="tools"><input id="tmEmail" type="email" placeholder="name@example.com" style="flex:1 1 200px;min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:8px;padding:9px 12px;min-height:42px">' +
       '<select id="tmRole" class="sel">' + ROLES.map(r => '<option value="' + r[0] + '"' + (r[0] === 'contributor' ? ' selected' : '') + '>' + r[1] + '</option>').join('') + '</select><button class="btn team" data-add>Add</button></div>' +
       '<div id="tmList" class="by">Loading…</div></section>' +
+      (window.HEL16Schedule ? window.HEL16Schedule.panelHtml() : '') +
       '<section class="panel"><h3>Import site data</h3><p class="by" style="margin:0">One-off move of the boards, tests and activity exported from the old Claude tracker. Needs signal.</p>' +
       '<div class="tools"><label class="btn">Choose export file<input type="file" id="impFile" accept=".json,application/json" hidden></label><span id="impMsg" class="by"></span></div></section>' : '') +
     '</div>';
@@ -214,6 +215,7 @@ async function openAccount(me, role) {
     location.reload();
   };
   if (role !== 'editor') return;
+  if (window.HEL16Schedule) window.HEL16Schedule.mount(host, me);
   const list = host.querySelector('#tmList');
   const draw = async () => {
     try {
