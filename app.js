@@ -171,9 +171,9 @@ function sheetOf(board) {
   return base;
 }
 // completion figures (site overview, area table, public progress page) count only the distribution boards:
-// PNL01 + PNL02, ELP and NLP in the COLOs (ADMIN keeps its PNL/ELP/NLP boards). UPS, battery, ADP, MSB, UPM boards are left out.
+// PNL01 + PNL02, ELP and NLP in the COLOs; every ADMIN board counts, as before. UPS, battery, ADP, MSB, UPM boards are left out.
 const inStats = id => { const m = /^(COLO\d|ADMIN)-(?:CE\d-)?(.+)$/.exec(id || ''); if (!m) return false; const t = m[2];
-  return m[1] === 'ADMIN' ? /^(PNL|ELP|NLP)\d\d$/.test(t) : /^(PNL0[12]|ELP\d\d|NLP\d\d)$/.test(t); };
+  return m[1] === 'ADMIN' ? true : /^(PNL0[12]|ELP\d\d|NLP\d\d)$/.test(t); };
 const boardList = () => Object.values(S.boards).sort((a, b) => (a.order - b.order) || a.board.localeCompare(b.board));
 const phaseOf = c => { const m = /^L([123])/.exec(c.circ || ''); return /L123/.test(c.circ || '') ? 0 : m ? +m[1] : 1; };
 function circuitsOf(b) {
