@@ -80,7 +80,8 @@ const num = v => { const n = parseFloat(String(v ?? '').replace(',', '.').replac
 const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 function merge(a, b) { for (const k in b) { const v = b[k]; if (isObj(v) && isObj(a[k])) merge(a[k], v); else a[k] = isObj(v) ? merge({}, v) : v; } return a; }
 const clone = o => JSON.parse(JSON.stringify(o || {}));
-const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+// percentages round up (best impression), but only a finished set shows 100%
+const pct = (n, d) => !d ? 0 : n >= d ? 100 : Math.min(99, Math.ceil(n / d * 100 - 1e-9));
 const stamp = () => ({ d: todayIso(), by: S.me.id, at: Date.now() });
 
 /* ---------- hold queue: every change waits on this phone until it is confirmed saved ---------- */
@@ -169,6 +170,10 @@ function sheetOf(board) {
   outbox.filter(o => o.coll === 'tests' && o.board === board && o.data.sheet).forEach(o => merge(base, clone(o.data.sheet)));
   return base;
 }
+// completion figures (site overview, area table, public progress page) count only the distribution boards:
+// PNL01 + PNL02, ELP and NLP in the COLOs (ADMIN keeps its PNL/ELP/NLP boards). UPS, battery, ADP, MSB, UPM boards are left out.
+const inStats = id => { const m = /^(COLO\d|ADMIN)-(?:CE\d-)?(.+)$/.exec(id || ''); if (!m) return false; const t = m[2];
+  return m[1] === 'ADMIN' ? /^(PNL|ELP|NLP)\d\d$/.test(t) : /^(PNL0[12]|ELP\d\d|NLP\d\d)$/.test(t); };
 const boardList = () => Object.values(S.boards).sort((a, b) => (a.order - b.order) || a.board.localeCompare(b.board));
 const phaseOf = c => { const m = /^L([123])/.exec(c.circ || ''); return /L123/.test(c.circ || '') ? 0 : m ? +m[1] : 1; };
 function circuitsOf(b) {
@@ -253,7 +258,7 @@ function render() {
 
 /* landing: choose a team + combined progress */
 function viewLanding() {
-  const all = boardList().flatMap(circuitsOf).filter(isActive), N = all.length;
+  const all = boardList().filter(b => inStats(b.board)).flatMap(circuitsOf).filter(isActive), N = all.length;
   const cnt = f => all.filter(f).length;
   const cards = [['install','--t-install'],['test','--t-test'],['qa','--t-qa']].map(([k, c]) => '<a class="tcard" href="#' + k + '" style="--c:var(' + c + ')"><h2>' + TEAMS[k].name + '</h2><p>' + TEAMS[k].blurb + '</p><span class="go">Open the ' + TEAMS[k].name + ' app →</span></a>').join('');
   const sb = S.scanBoard && S.boards[S.scanBoard];
@@ -286,7 +291,7 @@ async function loadSite() {
     const [bs, ts] = await Promise.all([S.db.collection('boards').limit(1000).get(), S.db.collection('tests').limit(1000).get()]);
     const tests = {}; ts.docs.forEach(d => tests[d.id] = d.data());
     const out = {};
-    bs.docs.forEach(d => { const b = d.data(); if (b.retired) return; const code = b.colo || d.id.split('-')[0], o = out[code] = out[code] || { n: 0, inst: 0, bt: 0, ft: 0, te: 0, lab: 0, post: 0, qa: 0, fail: 0 };
+    bs.docs.forEach(d => { const b = d.data(); if (b.retired || !inStats(d.id)) return; const code = b.colo || d.id.split('-')[0], o = out[code] = out[code] || { n: 0, inst: 0, bt: 0, ft: 0, te: 0, lab: 0, post: 0, qa: 0, fail: 0 };
       const tc = (tests[d.id] && tests[d.id].circuits) || {};
       Object.entries(b.circuits || {}).forEach(([ref, c]) => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return;
         const st = c.st || {}, x = { ...c, circ: c.circ, term: c.term, st }, t = tc[ref] || {};
@@ -307,7 +312,7 @@ let pubSent = {}; try { pubSent = JSON.parse(localStorage.getItem(PUB_KEY) || '{
 function publishProgress(map) {
   if (!S.db || S.readOnly || !navigator.onLine) return;
   Object.entries(map || {}).forEach(([id, b]) => {
-    if (b && b.retired) { if (pubSent[id] !== 'retired') S.db.doc('progress/' + id).delete().then(() => { pubSent[id] = 'retired'; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {}); return; }
+    if (b && (b.retired || !inStats(id))) { if (pubSent[id] !== 'retired') S.db.doc('progress/' + id).delete().then(() => { pubSent[id] = 'retired'; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {}); return; }
     if (!b || !b.circuits) return;
     const t = { n: 0, s: [0, 0, 0, 0, 0, 0], blk: 0 };
     Object.values(b.circuits).forEach(c => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return; const st = c.st || {};

@@ -129,7 +129,8 @@ function tally(boards) {
   boards.forEach(b => { const x = b.t || {}; t.n += x.n || 0; t.blk += x.blk || 0; ST.forEach((_, i) => { t.s[i] += (x.s && x.s[i]) || 0; }); });
   return t;
 }
-const pct = (x, n) => n ? Math.round(100 * x / n) : 0;
+// round up, but only a finished set shows 100%
+const pct = (x, n) => !n ? 0 : x >= n ? 100 : Math.min(99, Math.ceil(100 * x / n - 1e-9));
 const pcCell = (x, n) => { const p = pct(x, n); return '<td class="num pc' + (p === 100 ? ' full' : p === 0 ? ' zero' : '') + '">' + p + '%</td>'; };
 function stageTiles(t) {
   return '<div class="stages">' + ST.map((s, i) => { const p = pct(t.s[i], t.n);
