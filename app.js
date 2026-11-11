@@ -174,6 +174,8 @@ function sheetOf(board) {
 // PNL01, PNL02, ELP01 and NLP01 in each COLO cell; every ADMIN board counts, as before. UPS, battery, ADP, MSB, UPM boards are left out.
 const inStats = id => { const m = /^(COLO\d|ADMIN)-(?:CE\d-)?(.+)$/.exec(id || ''); if (!m) return false; const t = m[2];
   return m[1] === 'ADMIN' ? true : /^(PNL01|PNL02|ELP01|NLP01)$/.test(t); };
+// "Tested" in every summary: a passed pre-connection test on record, or the circuit's Tested tick (imported from the original tracker)
+const testedOf = (c, pre) => !!(c.st && c.st.te) || (!!pre && preVerdict({ ...c, three: /L123|3P|TP/i.test((c.circ || '') + ' ' + (c.term || '')) }, pre) === 'pass');
 const boardList = () => Object.values(S.boards).sort((a, b) => (a.order - b.order) || a.board.localeCompare(b.board));
 const phaseOf = c => { const m = /^L([123])/.exec(c.circ || ''); return /L123/.test(c.circ || '') ? 0 : m ? +m[1] : 1; };
 function circuitsOf(b) {
@@ -264,7 +266,7 @@ function viewLanding() {
   const sb = S.scanBoard && S.boards[S.scanBoard];
   const scanned = S.scanBoard ? '<section class="panel" style="border-top:6px solid var(--hivis)"><h3>Board ' + esc(S.scanBoard) + '</h3>' + (sb ? '<p class="by" style="margin:0">' + esc(sb.area || '') + ' · open it as:</p><div class="tools">' + [['install','Installers'],['test','Testers'],['qa','QA/QC']].map(([k, l]) => '<a class="btn team" style="text-decoration:none;background:var(--t-' + k + ');border-color:var(--t-' + k + ');color:' + (k === 'install' ? '#1a1f25' : '#fff') + '" href="#' + k + '.' + esc(S.scanBoard) + '">' + l + '</a>').join('') + '</div>' : '<p class="by" style="margin:0">This board is not in the tracker. Check with the site lead.</p>') + '</section>' : '';
   const flow = '<div class="flow"><b>Installers</b> pull and terminate → <b>Testers</b> pre- and post-connection tests (a pass ticks "Tested") and labelling → <b>QA/QC</b> inspects and signs off, only once everything before it is complete.</div>';
-  const cols = [['Pulled', c => c.st.inst], ['Board term', c => c.st.bt], ['Field term', c => c.st.ft], ['Tested', c => c.st.te], ['Labelled', c => c.st.lab], ['Post-test pass', c => postVerdict(c, c.te.post) === 'pass'], ['QA signed', c => c.st.qa]];
+  const cols = [['Pulled', c => c.st.inst], ['Board term', c => c.st.bt], ['Field term', c => c.st.ft], ['Tested', c => testedOf(c, c.te.pre)], ['Labelled', c => c.st.lab], ['Post-test pass', c => postVerdict(c, c.te.post) === 'pass'], ['QA signed', c => c.st.qa]];
   let rows = '';
   cellsOf().forEach(cell => { const cs = all.filter(c => c.cell === cell); if (!cs.length) return;
     rows += '<tr><td>' + cellLabel(cell) + '</td><td>' + cs.length + '</td>' + cols.map(([, f]) => '<td>' + pct(cs.filter(f).length, cs.length) + '%</td>').join('') + '</tr>'; });
@@ -299,24 +301,26 @@ async function loadSite() {
         const cat = String(c.cat || '').toUpperCase(), ty = String(c.dtype || '').trim().toUpperCase(), In = num(c.rating), k = { B: 5, C: 10, D: 20 }[ty];
         x.rcd = /RCD|RCBO/.test(cat); x.zsMax = (k && In && /MCB|RCBO/.test(cat)) ? +(0.95 * 230 / (k * In)).toFixed(2) : null;
         const pv = preVerdict(x, t.pre), qv = postVerdict(x, t.post);
-        o.n++; ['inst','bt','ft','te','lab','qa'].forEach(s => { if (st[s]) o[s]++; }); if (qv === 'pass') o.post++; if (pv === 'fail' || qv === 'fail') o.fail++; });
+        o.n++; ['inst','bt','ft','lab','qa'].forEach(s => { if (st[s]) o[s]++; }); if (testedOf(x, t.pre)) o.te++; if (qv === 'pass') o.post++; if (pv === 'fail' || qv === 'fail') o.fail++; });
     });
     S.site = out; S.siteAt = Date.now();
-    const all = {}; bs.docs.forEach(d => all[d.id] = d.data()); publishProgress(all);
+    const all = {}; bs.docs.forEach(d => all[d.id] = d.data()); publishProgress(all, tests);
   } catch (e) { toast('Could not load the site overview. Check your signal and tap Refresh.'); S.site = S.site || {}; S.siteAt = Date.now(); }
   finally { S.siteLoading = false; render(); }
 }
 /* ---------- public progress: overall figures per board, readable without signing in (progress.html) ---------- */
 const PUB_KEY = 'hel16.pub';
 let pubSent = {}; try { pubSent = JSON.parse(localStorage.getItem(PUB_KEY) || '{}'); } catch (e) {}
-function publishProgress(map) {
+function publishProgress(map, tests) {
+  if (!tests) return;   // wait for the test records, so Tested is counted from them
   if (!S.db || S.readOnly || !navigator.onLine) return;
   Object.entries(map || {}).forEach(([id, b]) => {
     if (b && (b.retired || !inStats(id))) { if (pubSent[id] !== 'retired') S.db.doc('progress/' + id).delete().then(() => { pubSent[id] = 'retired'; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {}); return; }
     if (!b || !b.circuits) return;
     const t = { n: 0, s: [0, 0, 0, 0, 0, 0], blk: 0 };
-    Object.values(b.circuits).forEach(c => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return; const st = c.st || {};
-      t.n++; if (c.blocker) t.blk++; ['inst', 'bt', 'ft', 'te', 'lab', 'qa'].forEach((k, i) => { if (st[k]) t.s[i]++; }); });
+    const tc = (tests[id] && tests[id].circuits) || {};
+    Object.entries(b.circuits).forEach(([ref, c]) => { if (!c || c.deleted || (c.status || 'Active') !== 'Active') return; const st = c.st || {};
+      t.n++; if (c.blocker) t.blk++; ['inst', 'bt', 'ft', 'te', 'lab', 'qa'].forEach((k, i) => { if (k === 'te' ? testedOf(c, (tc[ref] || {}).pre) : st[k]) t.s[i]++; }); });
     const j = JSON.stringify({ b: id, c: b.colo || id.split('-')[0], cell: b.cell || '', area: b.area || '', o: b.order || 0, t });
     if (pubSent[id] === j) return;
     S.db.doc('progress/' + id).set({ colo: b.colo || id.split('-')[0], at: Date.now(), j }).then(() => { pubSent[id] = j; try { localStorage.setItem(PUB_KEY, JSON.stringify(pubSent)); } catch (e) {} }, () => {});
@@ -328,9 +332,10 @@ function subscribe() {
   S.boards = {}; S.tests = {}; S.qa = {}; S.loaded = false; render();
   const db = S.db; if (!db) return;
   const sub = (coll, key, after) => unsubs.push(db.collection(coll).where('colo', '==', CODE).limit(500).onSnapshot(snap => { const n = {}; snap.docs.forEach(d => { const x = d.data(); if (!(coll === 'boards' && x && x.retired)) n[d.id] = x; }); S[key] = n; if (after) after(); render(); }, err => { if (coll === 'boards') { S.failed = 'The site data stopped updating (' + err.code + '). Reload the page to reconnect.'; S.loaded = false; render(); } }));
-  sub('boards', 'boards', () => { S.loaded = true; publishProgress(S.boards); if (!cellsOf().includes(S.cell)) S.cell = cellsOf()[0];
+  sub('boards', 'boards', () => { S.loaded = true; if (S._testsIn) publishProgress(S.boards, S.tests); if (!cellsOf().includes(S.cell)) S.cell = cellsOf()[0];
     if (S.pendingRef) { const c = findCircuit(S.pendingRef); if (c) { S.board = c.board; S.cell = c.cell; S.pendingRef = null; setTimeout(() => openSheet(c.ref), 0); } } });
-  sub('tests', 'tests'); sub('qa', 'qa');
+  S._testsIn = false;
+  sub('tests', 'tests', () => { S._testsIn = true; if (S.loaded) publishProgress(S.boards, S.tests); }); sub('qa', 'qa');
 }
 function switchColo(code) {
   if (code === CODE) return;
