@@ -54,7 +54,7 @@
     const extraOrder = {};
     for (const [id, sb] of Object.entries(file.boards)) {
       const lb = live.boards[id], short = id.replace(colo + '-', ''), elp = /-ELP\d/.test(id);
-      const p = { id, kind: lb ? 'update' : 'new', changes: [], added: [], missing: [], conflicts: [], tests: [], payload: { circuits: {} }, testsPayload: null, doc: null };
+      const p = { id, kind: lb ? 'update' : 'new', changes: [], added: [], missing: [], dropped: [], conflicts: [], tests: [], payload: { circuits: {} }, testsPayload: null, doc: null };
       const lc = lb ? (lb.circuits || {}) : {};
       const lt = (live.tests[id] || {}).circuits || {}, lq = (live.qa[id] || {}).circuits || {};
       // ---- match each sheet row to a live circuit, most certain first ----
@@ -121,7 +121,15 @@
       const seenD = {};
       Object.entries(finalDesc).forEach(([ref, x]) => { if (x.s !== 'Active' || !x.d || isSpare({ desc: x.d })) return; const k = key(x.d); (seenD[k] = seenD[k] || []).push(ref); });
       if (lb) Object.values(seenD).forEach(refs => { if (refs.length > 1 && refs.some(r => p.payload.circuits[r] && (p.payload.circuits[r].desc || !lc[r]))) p.conflicts.push(refs.length + ' circuits would share the description "' + finalDesc[refs[0]].d + '" (' + refs.join(', ') + '). Check the sheet.'); });
-      Object.entries(lc).forEach(([ref, c]) => { if (c && !c.deleted && !used.has(ref)) p.missing.push({ ref, label: lbl(c) + ' (' + (c.status || 'Active') + ')', work: hasWork(c, lt[ref], lq[ref]) }); });
+      Object.entries(lc).forEach(([ref, c]) => {
+        if (!c || c.deleted || used.has(ref)) return;
+        const work = hasWork(c, lt[ref], lq[ref]), st = c.status || 'Active';
+        // no longer on the sheets: an Active circuit with nothing recorded on it is set to Not required (option, on by default)
+        if (opts.dropMissing !== false && st === 'Active' && !work) {
+          p.payload.circuits[ref] = { ...(p.payload.circuits[ref] || {}), status: 'Not required' };
+          p.dropped.push({ ref, label: lbl(c) });
+        } else p.missing.push({ ref, label: lbl(c) + ' (' + st + ')', work });
+      });
       if (!lb) {
         const cellN = +(sb.cell || 'CE0').slice(2);
         extraOrder[cellN] = (extraOrder[cellN] || 7) + 0.1;
@@ -194,9 +202,10 @@
     for (const p of plans) {
       if (p.kind === 'retire') { L.push(p.id + ': RETIRE placeholder board, replaced by ' + p.replacedBy + (p.carried ? '; its recorded progress (' + p.carried.join(', ') + ') moved onto the active circuits of ' + p.replacedBy : ' (no work recorded)'), ''); continue; }
       if (p.kind === 'keep') { L.push(p.id + ': KEPT placeholder board because work is recorded on: ' + p.worked.join('; '), ''); continue; }
-      L.push(p.id + (p.kind === 'new' ? ' (NEW BOARD)' : '') + ': ' + p.changes.length + ' circuits updated, ' + p.added.length + ' added, ' + p.missing.length + ' not on the new sheet, ' + p.tests.length + ' paper tests');
+      L.push(p.id + (p.kind === 'new' ? ' (NEW BOARD)' : '') + ': ' + p.changes.length + ' circuits updated, ' + p.added.length + ' added, ' + (p.dropped || []).length + ' set to Not required, ' + p.missing.length + ' left as is (not on the new sheet), ' + p.tests.length + ' paper tests');
       p.changes.forEach(c => L.push('  UPDATE ' + c.ref + ' ' + c.label + ' [matched by ' + c.how + '] :: ' + Object.entries(c.fields).map(([k, [a, b]]) => LABEL[k] + ' "' + a + '" -> "' + b + '"').join('; ') + (c.work ? '  [work kept]' : '')));
       p.added.forEach(c => L.push('  ADD    ' + c.ref + ' ' + c.label));
+      p.dropped.forEach(c => L.push('  NOT ON SHEET -> set to Not required (no work recorded) ' + c.ref + ' ' + c.label));
       p.missing.forEach(c => L.push('  NOT ON SHEET (left as is) ' + c.ref + ' ' + c.label + (c.work ? '  [has work]' : '')));
       p.tests.forEach(c => L.push('  PAPER TEST ' + c.ref + ' ' + c.label + ' -> ' + c.verdict));
       p.conflicts.forEach(c => L.push('  CHECK  ' + c));
@@ -226,22 +235,24 @@
         const ids = Object.keys(file.boards).concat(Object.keys(file.retire || {}));
         const live = keepCarry && S._schedLive ? S._schedLive : await liveData(ids);
         S._schedLive = live; S._schedCarry = !!carryOn;
-        plans = plan(file, live, me, { carry: !!carryOn });
+        plans = plan(file, live, me, { carry: !!carryOn, dropMissing: S._schedDrop !== false });
         const n = k => plans.filter(p => p.kind === k), sum = f => plans.reduce((a, p) => a + ((p[f] && p[f].length) || 0), 0);
         const rows = plans.map(p => {
           const row = (body, tone) => '<div class="chk" style="display:grid;gap:2px;align-items:start"><b style="font:700 15px var(--f-display);letter-spacing:.03em;overflow-wrap:anywhere">' + esc(p.id) + (p.kind === 'new' ? ' <span class="chip ok">new</span>' : '') + '</b><span style="font-size:13px;' + (tone ? 'color:' + tone : '') + '">' + body + '</span></div>';
           if (p.kind === 'retire') return row('Placeholder retired, replaced by ' + esc(p.replacedBy) + (p.carried ? '. Its progress (' + esc(p.carried.join(', ')) + ') moves onto that panel’s active circuits.' : '.'));
           if (p.kind === 'keep') return row('Placeholder kept as it is: progress recorded on ' + p.worked.length + ' circuit(s)' + (p.uniform ? ' (' + esc(p.stages) + ' on every circuit)' : '') + '.', 'var(--part)');
-          const bits = p.kind === 'new' ? [p.added.length + ' circuits'] : [p.changes.length + ' updated', p.added.length + ' added', p.missing.length + ' not on sheet (kept)'];
+          const bits = p.kind === 'new' ? [p.added.length + ' circuits'] : [p.changes.length + ' updated', p.added.length + ' added'].concat(p.dropped.length ? [p.dropped.length + ' no longer used → Not required'] : []).concat(p.missing.length ? [p.missing.length + ' not on sheet (kept)'] : []);
           if (p.tests.length) bits.push(p.tests.length + ' paper tests');
           return row(bits.join(' · ') + (p.conflicts.length ? ' · <b style="color:var(--part)">' + p.conflicts.length + ' to check</b>' : ''));
         }).join('');
-        msg('<p style="margin:0"><b>' + esc(file.area) + '</b>: ' + n('new').length + ' new boards, ' + n('update').length + ' existing boards, ' + sum('changes') + ' circuits with schedule changes, ' + sum('added') + ' new circuits, ' + sum('tests') + ' paper test results. ' + sum('missing') + ' circuits in the app are not on the new sheets and will be left exactly as they are.</p>' +
+        msg('<p style="margin:0"><b>' + esc(file.area) + '</b>: ' + n('new').length + ' new boards, ' + n('update').length + ' existing boards, ' + sum('changes') + ' circuits with schedule changes, ' + sum('added') + ' new circuits, ' + sum('tests') + ' paper test results. ' + (sum('dropped') ? sum('dropped') + ' circuits are no longer on the sheets and have no work recorded, so they will be set to Not required. ' : '') + sum('missing') + ' other circuits not on the new sheets will be left exactly as they are.</p>' +
           '<p class="by" style="margin:0">Work already recorded (ticks, tests, QA/QC, blockers, notes, comments) is never changed.</p>' +
           '<div class="checks">' + rows + '</div><p class="by" style="margin:0">“To check” items are listed in the full report: mostly likely typos on the sheets. They don’t stop the update.</p>' +
+          '<label class="chk"><input type="checkbox" id="schedDrop"' + (S._schedDrop === false ? '' : ' checked') + '><span>Circuits no longer on the sheets, with no work recorded: set to Not required (left out of the completion figures)</span></label>' +
           (plans.some(p => (p.kind === 'keep' && p.uniform) || p.carried) ? '<label class="chk"><input type="checkbox" id="schedCarry"' + (plans.some(p => p.carried) ? ' checked' : '') + '><span>Placeholder UPS boards: move their recorded progress onto the new battery panels’ active circuits, then retire the placeholders</span></label>' : '') +
           '<div class="tools"><button class="btn" data-schedrep>Download full report</button><button class="btn team" data-schedgo>Apply update</button></div>');
         const cb = box.querySelector('#schedCarry'); if (cb) cb.onchange = () => { box.querySelector('#schedFile')._replan(); };
+        const db = box.querySelector('#schedDrop'); if (db) db.onchange = () => { S._schedDrop = db.checked; box.querySelector('#schedFile')._replan(); };
       } catch (x) { msg('Could not check the update (' + esc(x.message || x.code || 'error') + '). Check your signal and try again.'); }
     }
     box.addEventListener('click', async e => {
@@ -252,7 +263,7 @@
       try {
         // re-check against the very latest data right before writing
         const live = await liveData(Object.keys(file.boards).concat(Object.keys(file.retire || {})));
-        plans = plan(file, live, me, { carry: !!S._schedCarry });
+        plans = plan(file, live, me, { carry: !!S._schedCarry, dropMissing: S._schedDrop !== false });
         await apply(plans, me, file, id => { go.textContent = 'Updating ' + id + '…'; });
         msg('<p style="margin:0"><b>Done.</b> ' + esc(file.area) + ' boards are updated. Recorded work was left as it was.</p><div class="tools"><button class="btn" data-schedrep>Download full report</button></div>');
         if (typeof loadSite === 'function') { S.site = null; loadSite(); }
